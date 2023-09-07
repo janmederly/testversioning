@@ -10,7 +10,7 @@
 :page-upkeep-status: green
 :page-liquid:
 
-This is a reference documentation for midPoint administration and configuration.
+This is a reference documentation for midPoint administration and configuration. VERSION v2
 Following documents describe the details of midPoint configuration, behavior, customization options and all the other details that are necessary to use midPoint to its full potential.
 
 This is a *reference* documentation.
