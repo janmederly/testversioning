@@ -8,7 +8,6 @@
 package com.evolveum.midpoint.gui.impl.page.login.dto;
 
 import com.evolveum.midpoint.gui.api.prism.wrapper.ItemWrapper;
-import com.evolveum.midpoint.gui.api.prism.wrapper.PrismPropertyWrapper;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import org.jetbrains.annotations.NotNull;
@@ -17,15 +16,15 @@ import java.io.Serializable;
 
 public class VerificationAttributeDto implements Serializable {
 
-    private final PrismPropertyWrapper<?> itemWrapper;
+    private final ItemWrapper<?, ?> itemWrapper;
     private final ItemPath itemPath;
 
-    public VerificationAttributeDto(@NotNull PrismPropertyWrapper<?> itemWrapper, ItemPath itemPath) {
+    public VerificationAttributeDto(@NotNull ItemWrapper<?, ?> itemWrapper, ItemPath itemPath) {
         this.itemWrapper = itemWrapper;
         this.itemPath = itemPath;
     }
 
-    public PrismPropertyWrapper<?> getItemWrapper() {
+    public ItemWrapper<?, ?> getItemWrapper() {
         return itemWrapper;
     }
 

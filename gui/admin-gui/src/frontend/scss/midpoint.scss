@@ -1741,25 +1741,19 @@ span.yui-skin-sam {
   font-weight: bold;
 }
 
-@media (min-width: 577px) {
-  .register-box {
-    max-width: calc(480px + 1rem)!important;
-    width:100%;
-    }
-  .login-box {
-    max-width: calc(360px + 1rem)!important;
-    width:100%;
-  }
+.register-box {
+  width: 600px !important;
 }
 
-.login-box {
+@mixin login-box {
+  width: 400px !important;
 
   & .login-card-body .spacer hr {
-    border-color:#cbcbcb;
+    border-color:#dfdfdf;
   }
 
   & .login-card-body .spacer span {
-    color:#cbcbcb;
+    color:#dfdfdf;
   }
 
   & .login-card-body .user-panel.info-box .image img {

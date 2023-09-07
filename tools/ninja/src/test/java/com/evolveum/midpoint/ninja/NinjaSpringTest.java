@@ -2,8 +2,6 @@ package com.evolveum.midpoint.ninja;
 
 import javax.sql.DataSource;
 
-import com.evolveum.midpoint.prism.PrismContext;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationContext;
@@ -29,9 +27,6 @@ public abstract class NinjaSpringTest extends AbstractSpringTest implements Infr
 
     @Autowired
     protected ApplicationContext applicationContext;
-
-    @Autowired
-    protected PrismContext prismContext;
 
     @BeforeClass
     public void beforeClass() throws Exception {

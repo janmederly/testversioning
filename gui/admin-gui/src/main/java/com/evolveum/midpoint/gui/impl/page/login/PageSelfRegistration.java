@@ -137,7 +137,7 @@ public class PageSelfRegistration extends PageAbstractFlow {
                         getUserModel().getObject().setGivenName(new PolyStringType(object));
                     }
                 });
-        initInputProperties(feedback, firstName);
+        initInputProperties(feedback, "UserType.givenName", firstName);
         staticRegistrationForm.add(firstName);
 
         TextPanel<String> lastName = new TextPanel<>(ID_LAST_NAME,
@@ -151,19 +151,20 @@ public class PageSelfRegistration extends PageAbstractFlow {
                     }
 
                 });
-        initInputProperties(feedback, lastName);
+        initInputProperties(feedback, "UserType.familyName", lastName);
         staticRegistrationForm.add(lastName);
 
         TextPanel<String> email = new TextPanel<>(ID_EMAIL,
                 new PropertyModel<>(getUserModel(), UserType.F_EMAIL_ADDRESS.getLocalPart()));
-        initInputProperties(feedback, email);
+        initInputProperties(feedback, "UserType.emailAddress", email);
         staticRegistrationForm.add(email);
 
         createPasswordPanel(staticRegistrationForm);
         return staticRegistrationForm;
     }
 
-    private void initInputProperties(FeedbackPanel feedback, TextPanel<String> input) {
+    private void initInputProperties(FeedbackPanel feedback, String placeholderKey, TextPanel<String> input) {
+        input.getBaseFormComponent().add(AttributeAppender.append("placeholder", createStringResource(placeholderKey)));
         input.getBaseFormComponent().add(new EmptyOnBlurAjaxFormUpdatingBehaviour());
         input.getBaseFormComponent().setRequired(true);
         feedback.setFilter(new ContainerFeedbackMessageFilter(input.getBaseFormComponent()));

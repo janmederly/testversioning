@@ -21,8 +21,6 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import javax.xml.namespace.QName;
 
-import com.evolveum.midpoint.test.TestTask;
-
 import org.apache.directory.api.ldap.codec.api.DefaultConfigurableBinaryAttributeDetector;
 import org.apache.directory.api.ldap.model.cursor.CursorException;
 import org.apache.directory.api.ldap.model.cursor.CursorLdapReferralException;
@@ -141,21 +139,6 @@ public abstract class AbstractLdapTest extends AbstractModelIntegrationTest {
 
     protected Lsof lsof;
 
-    private TestTask taskLiveSync;
-    private TestTask taskLiveSyncInetOrgPerson;
-
-    @Override
-    public void initSystem() throws Exception {
-        super.initSystem();
-
-        taskLiveSync = new TestTask(getBaseDir(), "task-sync.xml", getSyncTaskOid());
-        taskLiveSyncInetOrgPerson = initTaskLiveSyncInetOrgPerson();
-    }
-
-    protected TestTask initTaskLiveSyncInetOrgPerson() {
-        return new TestTask(getBaseDir(), "task-sync-inetorgperson.xml", getSyncTaskOid());
-    }
-
     @Override
     protected void startResources() throws Exception {
         super.startResources();
@@ -190,16 +173,16 @@ public abstract class AbstractLdapTest extends AbstractModelIntegrationTest {
         return new File(getBaseDir(), "resource.xml");
     }
 
-    protected TestTask getSyncTask() {
-        return taskLiveSync;
+    protected File getSyncTaskFile() {
+        return new File(getBaseDir(), "task-sync.xml");
     }
 
     protected String getResourceNamespace() {
         return MidPointConstants.NS_RI;
     }
 
-    protected final TestTask getSyncTaskInetOrgPerson() {
-        return taskLiveSyncInetOrgPerson;
+    protected File getSyncTaskInetOrgPersonFile() {
+        return new File(getBaseDir(), "task-sync-inetorgperson.xml");
     }
 
     protected abstract String getSyncTaskOid();

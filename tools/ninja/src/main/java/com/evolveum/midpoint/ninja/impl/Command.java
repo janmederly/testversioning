@@ -60,7 +60,7 @@ public enum Command {
 
     UPGRADE("upgrade", UpgradeOptions.class, UpgradeAction.class),
 
-    INITIAL_OBJECTS("initial-objects", InitialObjectsOptions.class, InitialObjectsAction.class);
+    INITIAL_OBJECTS("initial-objects", InitialObjectsOptions.class, InitialObjects.class);
 
     private final String commandName;
 

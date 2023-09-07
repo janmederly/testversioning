@@ -19,7 +19,6 @@ import com.evolveum.midpoint.model.api.simulation.SimulationResultManager;
 
 import com.evolveum.midpoint.repo.common.ObjectOperationPolicyHelper;
 
-import com.evolveum.midpoint.schema.merger.AdminGuiConfigurationMergeManager;
 import com.evolveum.midpoint.schema.result.OperationResultStatus;
 
 import com.evolveum.midpoint.security.api.SecurityContextManager.ResultAwareCheckedProducer;

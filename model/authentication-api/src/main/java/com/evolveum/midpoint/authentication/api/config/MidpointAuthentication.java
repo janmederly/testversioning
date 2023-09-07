@@ -9,7 +9,6 @@ package com.evolveum.midpoint.authentication.api.config;
 import java.util.*;
 import java.util.stream.Stream;
 
-import com.evolveum.midpoint.authentication.api.util.AuthenticationModuleNameConstants;
 import com.evolveum.midpoint.util.logging.Trace;
 
 import com.evolveum.midpoint.util.logging.TraceManager;
@@ -195,8 +194,8 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
     @Override
     public boolean isAuthenticated() {
         List<AuthenticationSequenceModuleType> modules = sequence.getModule();
-        if (modules.isEmpty() && !AuthUtil.isClusterAuthentication(MidpointAuthentication.this)) {
-                return false;
+        if (modules.isEmpty()) {
+            return false;
         }
 
         if (shouldEvaluateAuthentication()) {
