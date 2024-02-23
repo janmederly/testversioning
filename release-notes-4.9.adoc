@@ -8,7 +8,7 @@ release-version: '4.9'
 :page-toc: top
 
 Release {release-version} is a fifty-TODO midPoint release, code-named _TODO_.
-The {release-version} release brings TODO. test
+The {release-version} release brings TODO. test2
 
 ++++
 {% include release-data.html %}
