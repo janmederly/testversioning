@@ -7,7 +7,7 @@ release-version: '4.8'
 :page-liquid:
 :page-toc: top
 
-Release {release-version} is a fifty-first midPoint release, code-named _Curie_. TEST3
+Release {release-version} is a fifty-first midPoint release, code-named _Curie_. TEST4
 The {release-version} release brings streamlined upgrade process, role mining, security, stability and miscellaneous improvements.
 
 ++++
