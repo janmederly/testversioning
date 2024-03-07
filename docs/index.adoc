@@ -1,5 +1,5 @@
 = MidPoint Configuration Reference
-:page-nav-title: Configuration Reference
+:page-nav-title: {{ page.midpointBranchDisplayName }}
 :page-wiki-name: Administration and Configuration Guide
 :page-wiki-id: 6881597
 :page-wiki-metadata-create-user: semancik
