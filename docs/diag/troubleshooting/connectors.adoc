@@ -14,7 +14,7 @@
 
 == Introduction
 
-This page describes the way how to diagnose connector-related problems.
+This page describes the way how to diagnose connector-related problems. test
 
 MidPoint is using the xref:/midpoint/reference/resources/connid/[ConnId] connector framework.
 Every connector is running in this framework.
