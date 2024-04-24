@@ -37,7 +37,7 @@ There are two supported options, reports based on object collections and reports
 Only one can be defined at the same time.
 * `fileFormat` - represents format of the generated report file.
 Supported formats for now are CSV and HTML.
-Default format for the dashboard-based reports is HTML and for object collection based reports is CSV.
+Default format for the dashboard-based reports is HTML and for object collection based reports is CSV. Test
 
 All configuration attributes of report:
 
