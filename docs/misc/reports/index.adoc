@@ -12,7 +12,7 @@ doc-type: intro
 :page-wiki-metadata-modify-date: 2016-10-19T10:04:33.028+02:00
 :page-keywords: [ 'report', 'reports', 'reporting' ]
 :page-upkeep-status: green
-:search-alias: "reports"
+:search-alias: reports
 
 == Description
 
