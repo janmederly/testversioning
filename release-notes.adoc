@@ -49,7 +49,7 @@ For more information see xrefv:/midpoint/reference/master/security/credentials/s
 ** Value metadata `storage` and `process` are indexed for assignments and available for search using `assignment/@metadata/storage`.
 * Ninja
 ** Added support for new verification categories: `MULTI_VALUE_REF_WITHOUT_OID`, `MISSING_NATURAL_KEY`, `MULTIVALUE_BYTE_ARRAY`, `PROTECTED_DATA_NOT_EXTERNAL`.
-For more information see xref:/midpoint/reference/deployment/ninja/command/verify.adoc[].
+For more information see xref:/midpoint/reference/deployment/ninja/command/verify.adoc[Test].
 
 * Role mining
 ** Attribute Clustering Support:
