@@ -8,7 +8,7 @@ release-version: '4.9'
 :page-toc: top
 
 Release {release-version} is a fifty-TODO midPoint release, code-named _Verne_.
-The {release-version} release brings TODO.
+The {release-version} release brings TODO test.
 
 ++++
 {% include release-data.html %}
