@@ -19,7 +19,7 @@ Despite that the midPoint user interface is a single application it is visually 
 
 * Administration part has comprehensive functionality targeted at identity administrators, delegated administrators and deployment engineers.
 
-Following pages describe MidPoint web-based administration user interface, its usage, configuration and customization. TEST
+Following pages describe MidPoint web-based administration user interface, its usage, configuration and customization. TEST2
 
 ++++
 {% children %}
