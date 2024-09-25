@@ -1,6 +1,7 @@
 = Look & Feel Customization HOWTO
 :page-toc: top
 :page-since: "4.6"
+:page-testtitle: "Look & Feel Customization HOWTO"
 
 Current MidPoint theme is based on link:https://almsaeedstudio.com/preview[AdminLTE] template.
 
