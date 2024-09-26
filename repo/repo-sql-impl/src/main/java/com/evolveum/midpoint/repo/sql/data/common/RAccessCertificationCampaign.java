@@ -7,6 +7,7 @@
 package com.evolveum.midpoint.repo.sql.data.common;
 
 import static com.evolveum.midpoint.schema.util.CertCampaignTypeUtil.norm;
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 
 import java.util.HashSet;
 import java.util.List;
@@ -14,10 +15,9 @@ import java.util.Set;
 import jakarta.persistence.*;
 import javax.xml.datatype.XMLGregorianCalendar;
 
-import org.hibernate.annotations.DynamicUpdate;
-import org.hibernate.annotations.ForeignKey;
-import org.hibernate.annotations.Persister;
-import org.hibernate.annotations.Type;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.*;
 
 import com.evolveum.midpoint.repo.sql.data.RepositoryContext;
 import com.evolveum.midpoint.repo.sql.data.common.container.RAccessCertificationCase;
@@ -33,6 +33,9 @@ import com.evolveum.midpoint.repo.sql.util.MidPointJoinedPersister;
 import com.evolveum.midpoint.repo.sql.util.RUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCampaignType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCaseType;
+
+import org.hibernate.annotations.ForeignKey;
+import org.hibernate.type.descriptor.jdbc.IntegerJdbcType;
 
 @Entity
 @Table(name = RAccessCertificationCampaign.TABLE_NAME,
@@ -117,6 +120,7 @@ public class RAccessCertificationCampaign extends RObject {
         return end;
     }
 
+    @JdbcType(IntegerJdbcType.class)
     public RAccessCertificationCampaignState getState() {
         return state;
     }
@@ -190,6 +194,6 @@ public class RAccessCertificationCampaign extends RObject {
         repo.setEnd(jaxb.getEndTimestamp());
         repo.setState(RUtil.getRepoEnumValue(jaxb.getState(), RAccessCertificationCampaignState.class));
         repo.setIteration(norm(jaxb.getIteration()));
-        repo.setStageNumber(jaxb.getStageNumber());
+        repo.setStageNumber(or0(jaxb.getStageNumber()));
     }
 }

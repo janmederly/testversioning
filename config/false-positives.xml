@@ -5,6 +5,11 @@
        When any of suppresion has notes and cve reordered, it will not load suppression file
   -->
   <suppress>
+      <notes>False Positive. Derby is not part of production build of midPoint, it is used only for testing.</notes>
+      <cve>CVE-2022-46337</cve>
+  </suppress>
+  
+  <suppress>
       <notes>False Positive. Jetty is not part of production build of midPoint, it is used only for testing.</notes>
       <cve>CVE-2023-36478</cve>
       <cve>CVE-2023-44487</cve>
@@ -288,5 +293,35 @@
       False Positive. MidPoint and Wicket are not used to display HTML from untrusted sources.
     </notes>
     <cve>CVE-2020-11023</cve>
+  </suppress>
+  <suppress>
+    <notes>
+      False Positive. midPoint does not use LDAP CertStore for certificate validations. 
+    </notes>
+    <cve>CVE-2023-33201</cve>
+  </suppress>
+  <suppress>
+    <notes>
+      False Positive. Default tomcat application is not exposed.
+    </notes>
+    <cve>CVE-2023-41080</cve>
+  </suppress>
+  <suppress>
+    <notes>
+      False positive. Okio is not used in midPoint directly, Okio is used only in ninja tool
+    </notes>
+    <cve>CVE-2023-3635</cve>
+  </suppress>
+  <suppress>
+    <notes>
+      False Positive. MidPoint does not use xmlsec with debug logging enebaled.
+    </notes>
+    <cve>CVE-2023-44483</cve>
+  </suppress>
+  <suppress>
+    <notes>
+      False Positive. MidPoint does not use logback in a way leading to vulnerability.
+    </notes>
+    <cve>CVE-2023-6378</cve>
   </suppress>
 </suppressions>

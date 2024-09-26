@@ -21,6 +21,8 @@ import java.util.List;
 
 import com.evolveum.midpoint.prism.query.ObjectFilter;
 
+import com.evolveum.midpoint.schema.internals.InternalsConfig;
+
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.context.ContextConfiguration;
@@ -870,7 +872,7 @@ public class TestBrokenResources extends AbstractConfiguredModelIntegrationTest 
         display("executeChanges result", result);
         assertPartialError(result);
 
-        DummyAccount jackDummyAccount = getDummyResource().getAccountByUsername(USER_JACK_USERNAME);
+        DummyAccount jackDummyAccount = getDummyResource().getAccountByName(USER_JACK_USERNAME);
         assertNotNull("No jack dummy account", jackDummyAccount);
     }
 
@@ -904,7 +906,7 @@ public class TestBrokenResources extends AbstractConfiguredModelIntegrationTest 
         display("executeChanges result", result);
         assertFailure(result);
 
-        DummyAccount jackDummyAccount = getDummyResource().getAccountByUsername(USER_JACK_USERNAME);
+        DummyAccount jackDummyAccount = getDummyResource().getAccountByName(USER_JACK_USERNAME);
         assertNotNull("No jack dummy account", jackDummyAccount);
     }
 
@@ -1175,7 +1177,12 @@ public class TestBrokenResources extends AbstractConfiguredModelIntegrationTest 
 
         // THEN
         then();
-        assertSuccess(result);
+        if (InternalsConfig.isShadowCachingOnByDefault()) {
+            // The 'not found' exception is caught on delta execution in this case, which is reported in more harsh way.
+            assertPartialError(result);
+        } else {
+            assertSuccess(result);
+        }
 
         PrismObject<UserType> userAfter = getUser(USER_GUYBRUSH_OID);
         display("User after", userAfter);

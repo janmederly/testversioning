@@ -1,3 +1,7 @@
+---
+midpoint-feature: approval-process
+doc-type: config
+---
 = Approval
 :page-wiki-name: Approval
 :page-wiki-id: 24084555
@@ -5,12 +9,10 @@
 :page-wiki-metadata-create-date: 2016-11-28T14:20:31.930+01:00
 :page-wiki-metadata-modify-user: vera
 :page-wiki-metadata-modify-date: 2020-03-31T15:04:51.194+02:00
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: red
 :page-upkeep-note: Old approvals vs new approvals
 
-Approval is perhaps the most frequently used type of xref:/midpoint/reference/cases/workflow-3/[workflow] in the IDM solutions.
+Approval is perhaps the most frequently used type of workflow in the IDM solutions.
 It is used so often that the approval process has a special place in midPoint.
 The approval mechanisms are pre-defined and pre-configured in such a way that it is easy to implement majority of approval scenarios by simply using declarative approach.
 Workflow process modeling is almost never needed.
@@ -53,16 +55,18 @@ The default policy in midPoint is to drive the request through approvals only if
 If no approvers are defined then the request is not driven through the approval process and it is automatically executed.
 This default can be changed by properly setting up the xref:/midpoint/reference/roles-policies/policy-rules/[policy rules].
 
-Default role approvers are defined by using the xref:/midpoint/reference/roles-policies/assignment/[assignment mechanism]. Role approvers have an assignment pointing to the role that are are approving.
-This assignment has xref:/midpoint/reference/concepts/relation/[Relation] set to _approver_. The default midPoint policy will look for these assignments.
+Default role approvers are defined by using the xref:/midpoint/reference/roles-policies/assignment/[assignment mechanism].
+Role approvers have an assignment pointing to the role that are approving.
+This assignment has xref:/midpoint/reference/concepts/relation/[Relation] set to `approver`.
+The default midPoint policy will look for these assignments.
+Application of the default mechanism can be controlled using `useDefaultApprovalPolicyRules` in xref:/midpoint/reference/concepts/system-configuration-object/[system configuration].
 
-[TIP]
-.Approval in midPoint 3.4.1 and earlier
+[WARNING]
+.Default approval mechanism may be confusing
 ====
-MidPoint 3.4.1 and earlier haven't had the mechanism of xref:/midpoint/reference/roles-policies/policy-rules/[policy rules] and therefore it used slightly different mechanism to define role approvers.
-The approvers were *not* defined using assignments.
-The approvers defined as a property of the role.
-This mechanism still work with midPoint 3.5, but because of its limited flexibility and maintainability midPoint deployments that use this legacy mechanism are advised to migrate to an assignment-based mechanism as soon as possible.
+The default approval mechanism is *not* applied if any other approval-related policy rule is applied.
+I.e. if any approval-related policy rule is applied, then the default approval step must be explicitly included in such policy rules, if the default behavior is still desired.
+This can be quite confusing, especially when approval is configured using feature:applicable-policies[applicable policies].
 ====
 
 
@@ -95,8 +99,6 @@ Although it was - in some form - present also in midPoint 3.4.1 and earlier (usi
 
 
 == See Also
-
-* xref:/midpoint/reference/cases/workflow-3/[Workflows (midPoint 3.x)]
 
 * xref:/midpoint/reference/roles-policies/assignment/[Assignment]
 

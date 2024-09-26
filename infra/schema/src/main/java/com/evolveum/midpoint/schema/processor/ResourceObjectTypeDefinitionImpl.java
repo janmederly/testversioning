@@ -7,25 +7,29 @@
 package com.evolveum.midpoint.schema.processor;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.Set;
 import javax.xml.namespace.QName;
-
-import com.evolveum.midpoint.util.exception.ConfigurationException;
-import com.evolveum.midpoint.util.exception.SchemaException;
-
-import com.evolveum.midpoint.util.exception.SystemException;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import com.evolveum.midpoint.prism.*;
+import com.evolveum.midpoint.prism.DeepCloneOperation;
+import com.evolveum.midpoint.prism.Definition;
+import com.evolveum.midpoint.prism.SmartVisitation;
+import com.evolveum.midpoint.prism.Visitor;
 import com.evolveum.midpoint.prism.path.ItemPath;
+import com.evolveum.midpoint.prism.schemaContext.SchemaContextDefinition;
 import com.evolveum.midpoint.schema.CapabilityUtil;
+import com.evolveum.midpoint.schema.processor.SynchronizationReactionDefinition.ObjectSynchronizationReactionDefinition;
+import com.evolveum.midpoint.schema.util.AbstractShadow;
+import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.util.PrettyPrinter;
+import com.evolveum.midpoint.util.exception.ConfigurationException;
+import com.evolveum.midpoint.util.exception.SchemaException;
+import com.evolveum.midpoint.util.exception.SystemException;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+import com.evolveum.midpoint.xml.ns._public.resource.capabilities_3.CapabilityCollectionType;
 import com.evolveum.midpoint.xml.ns._public.resource.capabilities_3.CapabilityType;
 
 /**
@@ -59,34 +63,35 @@ public final class ResourceObjectTypeDefinitionImpl
      */
     @NotNull private final String intent;
 
+    /** All supertypes of this object type. */
+    @NotNull private final Set<ResourceObjectTypeIdentification> ancestorsIds;
+
     @NotNull private final ResourceObjectClassDefinition refinedObjectClassDefinition;
 
     ResourceObjectTypeDefinitionImpl(
             @NotNull BasicResourceInformation basicResourceInformation,
             @NotNull ResourceObjectTypeIdentification identification,
+            @NotNull Set<ResourceObjectTypeIdentification> ancestorsIds,
             @NotNull ResourceObjectClassDefinition refinedObjectClassDefinition,
             @NotNull ResourceObjectTypeDefinitionType definitionBean)
             throws SchemaException, ConfigurationException {
-        this(DEFAULT_LAYER, basicResourceInformation, identification, refinedObjectClassDefinition, definitionBean);
+        this(DEFAULT_LAYER, basicResourceInformation, identification, ancestorsIds, refinedObjectClassDefinition, definitionBean);
     }
 
     private ResourceObjectTypeDefinitionImpl(
             @NotNull LayerType layer,
             @NotNull BasicResourceInformation basicResourceInformation,
             @NotNull ResourceObjectTypeIdentification identification,
+            @NotNull Set<ResourceObjectTypeIdentification> ancestorsIds,
             @NotNull ResourceObjectClassDefinition refinedObjectClassDefinition,
             @NotNull ResourceObjectTypeDefinitionType definitionBean)
             throws SchemaException, ConfigurationException {
         super(layer, basicResourceInformation, definitionBean);
         this.identification = identification;
+        this.ancestorsIds = ancestorsIds;
         this.kind = identification.getKind();
         this.intent = identification.getIntent();
         this.refinedObjectClassDefinition = refinedObjectClassDefinition;
-    }
-
-    @Override
-    public @NotNull BasicResourceInformation getBasicResourceInformation() {
-        return Objects.requireNonNull(basicResourceInformation);
     }
 
     @Override
@@ -97,6 +102,11 @@ public final class ResourceObjectTypeDefinitionImpl
     @Override
     public @NotNull ResourceObjectTypeDefinition getTypeDefinition() {
         return this;
+    }
+
+    @Override
+    public @NotNull Set<ResourceObjectTypeIdentification> getAncestorsIds() {
+        return ancestorsIds;
     }
 
     @Override
@@ -111,8 +121,8 @@ public final class ResourceObjectTypeDefinitionImpl
     }
 
     @Override
-    public @NotNull ResourceObjectClassDefinition getRawObjectClassDefinition() {
-        return refinedObjectClassDefinition.getRawObjectClassDefinition();
+    public @NotNull NativeObjectClassDefinition getNativeObjectClassDefinition() {
+        return refinedObjectClassDefinition.getNativeObjectClassDefinition();
     }
 
     @Override
@@ -171,12 +181,17 @@ public final class ResourceObjectTypeDefinitionImpl
     }
 
     @Override
-    public void trimTo(@NotNull Collection<ItemPath> paths) {
+    public void trimAttributesTo(@NotNull Collection<ItemPath> paths) {
         if (isImmutable()) {
             return; // This would fail anyway
         }
-        super.trimTo(paths);
-        refinedObjectClassDefinition.trimTo(paths);
+        super.trimAttributesTo(paths);
+        refinedObjectClassDefinition.trimAttributesTo(paths);
+    }
+
+    @Override
+    public @Nullable SchemaContextDefinition getSchemaContextDefinition() {
+        return refinedObjectClassDefinition.getSchemaContextDefinition();
     }
 
     //region Cloning ========================================================
@@ -196,7 +211,8 @@ public final class ResourceObjectTypeDefinitionImpl
         ResourceObjectTypeDefinitionImpl clone;
         try {
             clone = new ResourceObjectTypeDefinitionImpl(
-                    layer, getBasicResourceInformation(), identification, refinedObjectClassDefinition, definitionBean);
+                    layer, getBasicResourceInformation(), identification, ancestorsIds,
+                    refinedObjectClassDefinition, definitionBean);
         } catch (SchemaException | ConfigurationException e) {
             // The data should be already checked for correctness, so this should not happen.
             throw SystemException.unexpected(e, "when cloning");
@@ -258,7 +274,8 @@ public final class ResourceObjectTypeDefinitionImpl
                 && Objects.equals(basicResourceInformation, that.basicResourceInformation)
                 && definitionBean.equals(that.definitionBean)
                 && kind == that.kind
-                && intent.equals(that.intent);
+                && intent.equals(that.intent)
+                && ancestorsIds.equals(that.ancestorsIds);
     }
 
     @Override
@@ -269,24 +286,9 @@ public final class ResourceObjectTypeDefinitionImpl
     //endregion
 
     @Override
-    public MutableResourceObjectClassDefinition toMutable() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void performFreeze() {
         super.performFreeze();
         refinedObjectClassDefinition.freeze(); // TODO really?
-    }
-
-    @Override
-    public boolean hasSubstitutions() {
-        return false;
-    }
-
-    @Override
-    public Optional<ItemDefinition<?>> substitution(QName name) {
-        return Optional.empty();
     }
 
     @Override
@@ -328,18 +330,28 @@ public final class ResourceObjectTypeDefinitionImpl
         return definitionBean.getSynchronization() != null;
     }
 
+    // FIXME TEMPORARY, reconsider
     @Override
-    public @NotNull Collection<SynchronizationReactionDefinition> getSynchronizationReactions() {
-        SynchronizationReactionsType reactions = definitionBean.getSynchronization();
-        if (reactions == null) {
-            return List.of();
-        } else {
-            SynchronizationReactionsDefaultSettingsType defaultSettings = reactions.getDefaultSettings();
-            ClockworkSettings reactionLevelSettings = ClockworkSettings.of(defaultSettings);
-            return reactions.getReaction().stream()
-                    .map(bean -> SynchronizationReactionDefinition.of(bean, reactionLevelSettings))
-                    .collect(Collectors.toList());
-        }
+    public @NotNull FocusSpecification getFocusSpecification() {
+        return new FocusSpecification() {
+
+            @Override
+            public String getAssignmentSubtype() {
+                var focusSpec = getDefinitionBean().getFocus();
+                return focusSpec != null ? focusSpec.getAssignmentSubtype() : null;
+            }
+
+            @Override
+            public String getArchetypeOid() {
+                return ResourceObjectTypeDefinitionImpl.this.getArchetypeOid();
+            }
+        };
+    }
+
+    @Override
+    public @NotNull Collection<? extends ObjectSynchronizationReactionDefinition> getSynchronizationReactions() {
+        return SynchronizationReactionDefinition.modern(
+                definitionBean.getSynchronization());
     }
 
     @Override
@@ -362,28 +374,45 @@ public final class ResourceObjectTypeDefinitionImpl
     }
 
     @Override
-    public PrismObject<ShadowType> createBlankShadow(String resourceOid, String tag) {
-        return super.createBlankShadow(resourceOid, tag)
-                .asObjectable()
+    public AbstractShadow createBlankShadowWithTag(String tag) {
+        var shadow = super.createBlankShadowWithTag(tag);
+        shadow.getBean()
                 .kind(getKind())
-                .intent(getIntent())
-                .asPrismObject();
+                .intent(getIntent());
+        return shadow;
     }
 
     @Override
     public <T extends CapabilityType> @Nullable T getConfiguredCapability(Class<T> capabilityClass) {
-        return CapabilityUtil.getCapability(definitionBean.getConfiguredCapabilities(), capabilityClass);
+        return CapabilityUtil.getCapability(getSpecificCapabilities(), capabilityClass);
+    }
+
+    @Override
+    public @Nullable CapabilityCollectionType getSpecificCapabilities() {
+        return definitionBean.getConfiguredCapabilities();
     }
 
     @Override
     protected void addDebugDumpHeaderExtension(StringBuilder sb) {
         if (isDefaultForKind()) {
-            sb.append(",default-for-kind");
+            sb.append(", default-for-kind");
         }
         if (isDefaultForObjectClass()) {
-            sb.append(",default-for-class");
+            sb.append(", default-for-class");
         }
-        sb.append(",kind=").append(getKind().value());
-        sb.append(",intent=").append(getIntent());
+        sb.append(", kind=").append(getKind().value());
+        sb.append(", intent=").append(getIntent());
     }
+
+    @Override
+    protected void addDebugDumpTrailer(StringBuilder sb, int indent) {
+        sb.append("\n");
+        DebugUtil.debugDumpWithLabel(sb, "ancestors", ancestorsIds, indent + 1);
+    }
+
+    @Override
+    public @NotNull String getShortIdentification() {
+        return identification.toString();
+    }
+
 }

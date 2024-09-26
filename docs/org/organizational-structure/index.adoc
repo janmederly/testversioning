@@ -1,3 +1,11 @@
+---
+midpoint-feature: org
+doc-type: intro
+compliance:
+    iso27001:
+        '5.15':
+            description: 'Use of organizational structure as access control mechanism.'
+---
 = MidPoint Organizational Structure Introduction
 :page-nav-title: Introduction
 :page-wiki-name: Organizational Structure
@@ -6,7 +14,8 @@
 :page-wiki-metadata-create-date: 2013-07-24T10:01:15.792+02:00
 :page-wiki-metadata-modify-user: semancik
 :page-wiki-metadata-modify-date: 2016-09-16T11:33:44.628+02:00
-:page-upkeep-status: yellow
+:page-upkeep-status: orange
+:page-upkeep-note: Need to re-structure the pages, empty stub page (one level up) does not make sense.
 
 == Introduction
 
@@ -172,7 +181,7 @@ Users (and other objects) are linked to the org using OID-based references there
 .XML structure of a basic organizational unit
 [source,xml]
 ----
-    <org oid="c74a7d86-7798-11e2-964e-100000000100">
+    <org oid="c74a7d86-7798-11e2-964e-100000000000">
         <name>F0000</name>
         <description>Famous workshop of Leonardo da Vinci</description>
         <displayName>Leonardo's Workshop</displayName>

@@ -6,6 +6,7 @@
  */
 package com.evolveum.midpoint.repo.sqale.qmodel.accesscert;
 
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCaseType.*;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.FocusType.F_ACTIVATION;
 
@@ -139,6 +140,7 @@ public class QAccessCertificationCaseMapping
                 Objects.requireNonNull(row.get(entityPath.ownerOid)) + ","
                         + Objects.requireNonNull(row.get(entityPath.cid)));
         attachOwnerOid(ret, row, entityPath);
+        attachContainerIdPath(ret, row, entityPath);
         return ret;
     }
 
@@ -203,7 +205,7 @@ public class QAccessCertificationCaseMapping
         row.remediedTimestamp = MiscUtil.asInstant(acase.getRemediedTimestamp());
         row.currentStageDeadline = MiscUtil.asInstant(acase.getCurrentStageDeadline());
         row.currentStageCreateTimestamp = MiscUtil.asInstant(acase.getCurrentStageCreateTimestamp());
-        row.stageNumber = acase.getStageNumber();
+        row.stageNumber = or0(acase.getStageNumber());
         setReference(acase.getTargetRef(),
                 o -> row.targetRefTargetOid = o,
                 t -> row.targetRefTargetType = t,
@@ -250,9 +252,9 @@ public class QAccessCertificationCaseMapping
     @Override
     public ResultListRowTransformer<AccessCertificationCaseType, QAccessCertificationCase, MAccessCertificationCase> createRowTransformer(
             SqlQueryContext<AccessCertificationCaseType, QAccessCertificationCase, MAccessCertificationCase> sqlQueryContext,
-            JdbcSession jdbcSession) {
+            JdbcSession jdbcSession, Collection<SelectorOptions<GetOperationOptions>> options) {
         Map<UUID, PrismObject<AccessCertificationCampaignType>> cache = new HashMap<>();
-        return (tuple, entityPath, options) -> {
+        return (tuple, entityPath) -> {
             Long cid = Objects.requireNonNull(tuple.get(entityPath.cid));
             UUID ownerOid = Objects.requireNonNull(tuple.get(entityPath.ownerOid));
             PrismObject<AccessCertificationCampaignType> owner = cache.get(ownerOid);

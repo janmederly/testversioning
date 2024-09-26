@@ -9,11 +9,11 @@ package com.evolveum.midpoint.provisioning.impl.resourceobjects;
 
 import com.evolveum.midpoint.provisioning.api.GenericConnectorException;
 import com.evolveum.midpoint.provisioning.impl.ProvisioningContext;
-import com.evolveum.midpoint.provisioning.impl.ResourceObjectDiscriminator;
+import com.evolveum.midpoint.provisioning.impl.RepoShadow;
 import com.evolveum.midpoint.provisioning.impl.ResourceObjectOperations;
 import com.evolveum.midpoint.provisioning.ucf.api.*;
 import com.evolveum.midpoint.provisioning.util.ProvisioningUtil;
-import com.evolveum.midpoint.schema.processor.ResourceAttributeDefinition;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttributeDefinition;
 import com.evolveum.midpoint.schema.processor.ResourceObjectIdentification;
 import com.evolveum.midpoint.schema.processor.ResourceObjectIdentifiers;
 import com.evolveum.midpoint.schema.result.OperationResult;
@@ -172,7 +172,8 @@ abstract class ResourceObjectProvisioningOperation {
 
                 ResourceObjectUcfModifyOperation.execute(
                         entitlementCtx,
-                        entry.getValue().getCurrentShadow(),
+                        null,
+                        entry.getValue().getCurrentResourceObject(),
                         ResourceObjectIdentification.of(entitlementCtx.getObjectDefinitionRequired(), identifiers),
                         operations,
                         null,
@@ -203,45 +204,47 @@ abstract class ResourceObjectProvisioningOperation {
         }
     }
 
-    ShadowType preOrPostRead(
+    @Nullable
+    ExistingResourceObjectShadow preOrPostRead(
             ProvisioningContext ctx,
             ResourceObjectIdentification.WithPrimary identification,
             Collection<Operation> operations,
             boolean fetchEntitlements,
-            ShadowType repoShadow,
+            RepoShadow repoShadow,
             OperationResult result)
             throws ObjectNotFoundException, CommunicationException, SchemaException, SecurityViolationException,
             ConfigurationException, ExpressionEvaluationException {
-        List<ResourceAttributeDefinition<?>> neededExtraAttributes = new ArrayList<>();
+        List<ShadowSimpleAttributeDefinition<?>> neededExtraAttributes = new ArrayList<>();
         for (Operation operation : operations) {
-            ResourceAttributeDefinition<?> rad = operation.getAttributeDefinitionIfApplicable(ctx.getObjectDefinitionRequired());
+            ShadowSimpleAttributeDefinition<?> rad = operation.getAttributeDefinitionIfApplicable(ctx.getObjectDefinitionRequired());
             if (rad != null && (!rad.isReturnedByDefault() || rad.getFetchStrategy() == AttributeFetchStrategyType.EXPLICIT)) {
                 neededExtraAttributes.add(rad);
             }
         }
 
-        AttributesToReturn attributesToReturn = new AttributesToReturn();
-        attributesToReturn.setAttributesToReturn(neededExtraAttributes);
-        ShadowType resourceObjectBean;
+        ShadowItemsToReturn shadowItemsToReturn = new ShadowItemsToReturn();
+        shadowItemsToReturn.setItemsToReturn(neededExtraAttributes);
+        CompleteResourceObject resourceObject;
         try {
-            resourceObjectBean =
-                    Objects.requireNonNull(
-                                    b.resourceObjectConverter.fetchResourceObject(
-                                            ctx, identification, attributesToReturn, repoShadow, fetchEntitlements, result))
-                            .getBean();
+            if (ctx.isReadingCachingOnly() && repoShadow != null) {
+                resourceObject = b.resourceObjectConverter.completeResourceObject(
+                        ctx, ExistingResourceObjectShadow.fromRepoShadow(repoShadow.clone()), fetchEntitlements, result);
+            } else {
+                resourceObject = b.resourceObjectConverter.fetchResourceObject(
+                        ctx, identification, shadowItemsToReturn, fetchEntitlements, result);
+            }
         } catch (ObjectNotFoundException e) {
             // This may happen for semi-manual connectors that are not yet up to date.
             // No big deal. We will have to work without it.
-            getLogger().warn("Cannot read shadow {}, it is probably not present in the {}. Skipping pre/post read.",
+            getLogger().warn("Cannot read shadow {}, it is probably not present on {}. Skipping pre/post read.",
                     identification, ctx.getResource());
             return null;
         }
-        if (repoShadow != null) {
-            resourceObjectBean.setOid(repoShadow.getOid());
-        }
-        resourceObjectBean.setName(
-                ShadowUtil.determineShadowNameRequired(resourceObjectBean));
-        return resourceObjectBean;
+        ShadowType resourceObjectBean = resourceObject.getBean();
+        resourceObjectBean.setName( // TODO why this?
+                ShadowUtil.determineShadowNameRequired(resourceObject.resourceObject()));
+
+        return resourceObject.resourceObject();
     }
 
     abstract Trace getLogger();

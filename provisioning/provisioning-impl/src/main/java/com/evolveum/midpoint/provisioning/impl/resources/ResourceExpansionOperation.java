@@ -158,7 +158,7 @@ class ResourceExpansionOperation {
     /** Applies all known connector definitions to given resource object. */
     private void applyConnectorDefinitions(@NotNull ResourceType resource) throws SchemaException, ConfigurationException {
         for (ConnectorSpec connectorSpec : ConnectorSpec.all(resource)) {
-            PrismContainer<ConnectorConfigurationType> configurationContainer = connectorSpec.getConnectorConfiguration();
+            var configurationContainer = connectorSpec.getConnectorConfigurationContainer();
             if (configurationContainer == null) {
                 continue;
             }
@@ -167,8 +167,7 @@ class ResourceExpansionOperation {
                     MiscUtil.requireNonNull(
                             connectorConfigurationDefinitions.get(connectorName),
                             () -> new IllegalStateException("No connector schema for '" + connectorName + "' in " + resource));
-            definitionFromConnector.adoptElementDefinitionFrom(configurationContainer.getDefinition());
-            configurationContainer.applyDefinition(definitionFromConnector, true);
+            configurationContainer.applyDefinition(definitionFromConnector);
         }
     }
 

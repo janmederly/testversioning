@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import com.evolveum.midpoint.schema.processor.*;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
@@ -35,12 +37,9 @@ import com.evolveum.midpoint.provisioning.ucf.api.GenericFrameworkException;
 import com.evolveum.midpoint.provisioning.ucf.api.UcfExecutionContext;
 import com.evolveum.midpoint.provisioning.util.ProvisioningUtil;
 import com.evolveum.midpoint.repo.api.RepositoryService;
-import com.evolveum.midpoint.schema.CapabilityUtil;
 import com.evolveum.midpoint.schema.GetOperationOptions;
 import com.evolveum.midpoint.schema.internals.InternalCounters;
 import com.evolveum.midpoint.schema.internals.InternalMonitor;
-import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
-import com.evolveum.midpoint.schema.processor.ResourceSchema;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.result.OperationResultStatus;
 import com.evolveum.midpoint.schema.statistics.ConnectorOperationalStatus;
@@ -193,7 +192,7 @@ public class ResourceManager {
             return;
         }
         LOGGER.trace("Resource after completion, before (considering) putting into cache:\n{}", completedResource.debugDump());
-        Element xsdSchemaElement = ResourceTypeUtil.getResourceXsdSchema(completedResource);
+        Element xsdSchemaElement = ResourceTypeUtil.getResourceXsdSchemaElement(completedResource);
         if (xsdSchemaElement == null) {
             LOGGER.trace("Schema: null");
         } else {
@@ -251,8 +250,7 @@ public class ResourceManager {
         result.addParam(OperationResult.PARAM_NAME, connectorSpec.getConnectorName());
         result.addParam(OperationResult.PARAM_OID, connectorSpec.getConnectorOid());
 
-        ConnectorInstance connector =
-                connectorManager.getConfiguredConnectorInstance(connectorSpec, result);
+        var connector = connectorManager.getNonProductionConnectorInstance(connectorSpec, result);
         return DiscoveredConfiguration.of(
                 connector.discoverConfiguration(result));
     }
@@ -261,7 +259,7 @@ public class ResourceManager {
             throws SchemaException, ObjectNotFoundException, CommunicationException, ConfigurationException {
         try {
             return connectorManager
-                    .getConnectorInstanceByConnectorOid(connOid, result)
+                    .getUnconfiguredConnectorInstance(connOid, result)
                     .getNativeCapabilities(result);
         } catch (GenericFrameworkException e) {
             // Not expected. Transform to system exception
@@ -269,11 +267,17 @@ public class ResourceManager {
         }
     }
 
-    public @Nullable ResourceSchema fetchSchema(@NotNull ResourceType resource, @NotNull OperationResult result)
+    /**
+     * Fetches the schema from the resource.
+     *
+     * The appropriate connector instance is not cached, as the configuration can differ from the "official" one.
+     */
+    public @Nullable BareResourceSchema fetchSchema(@NotNull ResourceType resource, @NotNull OperationResult result)
             throws CommunicationException, GenericFrameworkException, ConfigurationException, ObjectNotFoundException,
             SchemaException {
         LOGGER.trace("Fetching resource schema for {}", resource);
-        return schemaFetcher.fetchResourceSchema(resource, null, result);
+        var nativeSchema = schemaFetcher.fetchResourceSchema(resource, null, false, result);
+        return nativeSchema != null ? ResourceSchemaFactory.nativeToBare(nativeSchema) : null;
     }
 
     /**
@@ -369,9 +373,10 @@ public class ResourceManager {
             ExpressionEvaluationException {
         ResourceType resource = getCompletedResource(resourceOid, null, task, result);
         ConnectorSpec connectorSpec = connectorSelector.selectConnectorRequired(resource, ScriptCapabilityType.class);
-        ConnectorInstance connectorInstance = connectorManager.getConfiguredAndInitializedConnectorInstance(connectorSpec, false, result);
-        ExecuteProvisioningScriptOperation scriptOperation = ProvisioningUtil.convertToScriptOperation(script, "script on " + resource);
         try {
+            ConnectorInstance connectorInstance =
+                    connectorManager.getConfiguredAndInitializedConnectorInstance(connectorSpec, false, result);
+            ExecuteProvisioningScriptOperation scriptOperation = ProvisioningUtil.convertToScriptOperation(script, "script on " + resource);
             UcfExecutionContext ucfCtx = new UcfExecutionContext(lightweightIdentifierGenerator, resource, task);
             ucfCtx.checkExecutionFullyPersistent();
             return connectorInstance.executeScript(scriptOperation, ucfCtx, result);
@@ -397,7 +402,7 @@ public class ResourceManager {
         return statuses;
     }
 
-    public <T extends CapabilityType> ConnectorInstance getConfiguredConnectorInstance(
+    public <T extends CapabilityType> @NotNull ConnectorInstance getConfiguredConnectorInstance(
             ResourceType resource,
             Class<T> capabilityClass,
             boolean forceFresh,
@@ -414,15 +419,5 @@ public class ResourceManager {
             ResourceType resource, Class<T> operationCapabilityClass) throws ConfigurationException {
         ConnectorSpec connectorSpec = connectorSelector.selectConnectorRequired(resource, operationCapabilityClass);
         return connectorManager.getConfiguredConnectorInstanceFromCache(connectorSpec);
-    }
-
-    /**
-     * Gets a specific capability from resource/connectors/object-class.
-     */
-    public <T extends CapabilityType> T getCapability(
-            @NotNull ResourceType resource,
-            @Nullable ResourceObjectDefinition objectDefinition,
-            @NotNull Class<T> operationCapabilityClass) {
-        return CapabilityUtil.getCapability(resource, objectDefinition, operationCapabilityClass);
     }
 }

@@ -7,28 +7,28 @@
 
 package com.evolveum.midpoint.web.page.admin.configuration;
 
+import java.io.Serial;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.xml.namespace.QName;
 
-import com.evolveum.midpoint.model.api.ActivitySubmissionOptions;
-
-import com.evolveum.midpoint.schema.util.task.ActivityDefinitionBuilder;
+import com.evolveum.midpoint.web.component.util.SerializableFunction;
 
 import org.apache.catalina.util.ServerInfo;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.PropertyModel;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 
 import com.evolveum.midpoint.authentication.api.authorization.AuthorizationAction;
@@ -41,20 +41,23 @@ import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
 import com.evolveum.midpoint.gui.api.util.WebModelServiceUtils;
 import com.evolveum.midpoint.init.InitialDataImport;
 import com.evolveum.midpoint.init.StartupConfiguration;
+import com.evolveum.midpoint.model.api.ActivitySubmissionOptions;
+import com.evolveum.midpoint.model.api.ModelInteractionService;
 import com.evolveum.midpoint.model.api.ModelService;
 import com.evolveum.midpoint.prism.PrismContext;
 import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
 import com.evolveum.midpoint.prism.xml.XmlTypeConverter;
 import com.evolveum.midpoint.repo.api.CacheDispatcher;
-import com.evolveum.midpoint.repo.cache.RepositoryCache;
-import com.evolveum.midpoint.repo.common.SystemObjectCache;
+import com.evolveum.midpoint.repo.common.subscription.JarSignatureHolder;
+import com.evolveum.midpoint.schema.DeltaConvertor;
 import com.evolveum.midpoint.schema.LabeledString;
 import com.evolveum.midpoint.schema.ProvisioningDiag;
 import com.evolveum.midpoint.schema.RepositoryDiag;
 import com.evolveum.midpoint.schema.constants.ObjectTypes;
 import com.evolveum.midpoint.schema.constants.SchemaConstants;
 import com.evolveum.midpoint.schema.result.OperationResult;
+import com.evolveum.midpoint.schema.util.task.ActivityDefinitionBuilder;
 import com.evolveum.midpoint.security.api.AuthorizationConstants;
 import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.task.api.TaskManager;
@@ -93,6 +96,8 @@ public class PageAbout extends PageAdminConfiguration {
     private static final String OPERATION_TEST_REPOSITORY_CHECK_ORG_CLOSURE = DOT_CLASS + "testRepositoryCheckOrgClosure";
     private static final String OPERATION_GET_REPO_DIAG = DOT_CLASS + "getRepoDiag";
     private static final String OPERATION_SUBMIT_REINDEX = DOT_CLASS + "submitReindex";
+
+    private static final String OPERATION_SUBMIT_REPARTITION = DOT_CLASS + "submitRepartition";
     private static final String OPERATION_GET_PROVISIONING_DIAG = DOT_CLASS + "getProvisioningDiag";
     private static final String OPERATION_DELETE_ALL_OBJECTS = DOT_CLASS + "deleteAllObjects";
     private static final String OPERATION_LOAD_NODE = DOT_CLASS + "loadNode";
@@ -103,6 +108,9 @@ public class PageAbout extends PageAdminConfiguration {
     private static final String ID_BRANCH = "branch";
     private static final String ID_PROPERTY = "property";
     private static final String ID_VALUE = "value";
+    private static final String ID_OFFICIAL_BUILD = "officialBuild";
+    private static final String ID_UNOFFICIAL_BUILD = "unofficialBuild";
+    private static final String ID_OVERLAY = "overlay";
     private static final String ID_LIST_SYSTEM_ITEMS = "listSystemItems";
     private static final String ID_TEST_REPOSITORY = "testRepository";
     private static final String ID_TEST_REPOSITORY_CHECK_ORG_CLOSURE = "testRepositoryCheckOrgClosure";
@@ -110,7 +118,6 @@ public class PageAbout extends PageAdminConfiguration {
     private static final String ID_TEST_PROVISIONING = "testProvisioning";
     private static final String ID_IMPLEMENTATION_SHORT_NAME = "implementationShortName";
     private static final String ID_IMPLEMENTATION_DESCRIPTION = "implementationDescription";
-    private static final String ID_IS_EMBEDDED = "isEmbedded";
     private static final String ID_DRIVER_SHORT_NAME = "driverShortName";
     private static final String ID_DRIVER_VERSION = "driverVersion";
     private static final String ID_REPOSITORY_URL = "repositoryUrl";
@@ -127,6 +134,8 @@ public class PageAbout extends PageAdminConfiguration {
     private static final String ID_NODE_ID = "nodeId";
     private static final String ID_NODE_URL = "nodeUrl";
 
+    private static final String ID_REPOSITORY_ENABLE_PARTITIONING = "repositoryEnablePartitioning";
+
     private static final String[] PROPERTIES = new String[] { "file.separator", "java.class.path",
             "java.home", "java.vendor", "java.vendor.url", "java.version", "line.separator", "os.arch",
             "os.name", "os.version", "path.separator", "user.dir", "user.home", "user.name" };
@@ -136,9 +145,6 @@ public class PageAbout extends PageAdminConfiguration {
 
     private IModel<NodeType> nodeModel;
 
-    @Autowired RepositoryCache repositoryCache;
-    @Autowired protected SystemObjectCache systemObjectCache;
-
     public PageAbout() {
         initModels();
         initLayout();
@@ -146,6 +152,8 @@ public class PageAbout extends PageAdminConfiguration {
 
     private void initModels() {
         repoDiagModel = new LoadableModel<>(false) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -154,6 +162,8 @@ public class PageAbout extends PageAdminConfiguration {
             }
         };
         provisioningDiagModel = new LoadableModel<>(false) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -205,7 +215,21 @@ public class PageAbout extends PageAdminConfiguration {
         build.setRenderBodyOnly(true);
         add(build);
 
+        boolean jarSignatureValid = JarSignatureHolder.isJarSignatureValid();
+        boolean overlay = JarSignatureHolder.isOverlayDetected();
+        add(new WebMarkupContainer(ID_OFFICIAL_BUILD)
+                .setRenderBodyOnly(true)
+                .setVisible(!overlay && jarSignatureValid));
+        add(new WebMarkupContainer(ID_UNOFFICIAL_BUILD)
+                .setRenderBodyOnly(true)
+                .setVisible(!overlay && !jarSignatureValid));
+        add(new WebMarkupContainer(ID_OVERLAY)
+                .setRenderBodyOnly(true)
+                .setVisible(overlay));
+
         ListView<LabeledString> listSystemItems = new ListView<>(ID_LIST_SYSTEM_ITEMS, getItems()) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -223,15 +247,16 @@ public class PageAbout extends PageAdminConfiguration {
         };
         add(listSystemItems);
 
-        addLabel(ID_IMPLEMENTATION_SHORT_NAME, "implementationShortName");
-        addLabel(ID_IMPLEMENTATION_DESCRIPTION, "implementationDescription");
-        addLabel(ID_IS_EMBEDDED, "isEmbedded");
-        addLabel(ID_DRIVER_SHORT_NAME, "driverShortName");
-        addLabel(ID_DRIVER_VERSION, "driverVersion");
-        addLabel(ID_REPOSITORY_URL, "repositoryUrl");
+        addLabel(ID_IMPLEMENTATION_SHORT_NAME, rd -> rd.getImplementationShortName());
+        addLabel(ID_IMPLEMENTATION_DESCRIPTION, rd -> rd.getImplementationDescription());
+        addLabel(ID_DRIVER_SHORT_NAME, rd -> rd.getDriverShortName());
+        addLabel(ID_DRIVER_VERSION, rd -> rd.getDriverVersion());
+        addLabel(ID_REPOSITORY_URL, rd -> rd.getRepositoryUrl());
 
         ListView<LabeledString> additionalDetails = new ListView<>(ID_ADDITIONAL_DETAILS,
                 new PropertyModel<>(repoDiagModel, "additionalDetails")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -251,6 +276,8 @@ public class PageAbout extends PageAdminConfiguration {
 
         ListView<LabeledString> provisioningAdditionalDetails = new ListView<>(ID_PROVISIONING_ADDITIONAL_DETAILS,
                 new PropertyModel<>(provisioningDiagModel, "additionalDetails")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -281,6 +308,8 @@ public class PageAbout extends PageAdminConfiguration {
         add(nodeUrl);
 
         Label jvmProperties = new Label(ID_JVM_PROPERTIES, new LoadableModel<String>(false) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -317,14 +346,16 @@ public class PageAbout extends PageAdminConfiguration {
         return argument.substring(0, index) + "=" + StartupConfiguration.SENSITIVE_VALUE_OUTPUT;
     }
 
-    private void addLabel(String id, String propertyName) {
-        Label label = new Label(id, new PropertyModel<String>(repoDiagModel, propertyName));
+    private void addLabel(String id, SerializableFunction<RepositoryDiag, String> valueFunction) {
+        Label label = new Label(id, () -> valueFunction.apply(repoDiagModel.getObject()));
         label.setRenderBodyOnly(true);
         add(label);
     }
 
     private void initButtons() {
         AjaxButton testRepository = new AjaxButton(ID_TEST_REPOSITORY, createStringResource("PageAbout.button.testRepository")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -336,6 +367,8 @@ public class PageAbout extends PageAdminConfiguration {
 
         AjaxButton testRepositoryCheckOrgClosure = new AjaxButton(ID_TEST_REPOSITORY_CHECK_ORG_CLOSURE,
                 createStringResource("PageAbout.button.testRepositoryCheckOrgClosure")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -347,6 +380,8 @@ public class PageAbout extends PageAdminConfiguration {
 
         AjaxButton reindexRepositoryObjects = new AjaxButton(ID_REINDEX_REPOSITORY_OBJECTS,
                 createStringResource("PageAbout.button.reindexRepositoryObjects")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -356,8 +391,24 @@ public class PageAbout extends PageAdminConfiguration {
         };
         add(reindexRepositoryObjects);
 
+        AjaxButton enableShadowPartitioning = new AjaxButton(ID_REPOSITORY_ENABLE_PARTITIONING,
+                createStringResource("PageAbout.button.enableShadowPartitioning")) {
+
+            @Serial
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void onClick(AjaxRequestTarget target) {
+                enableShadowPartitioningPerformed(target);
+            }
+        };
+
+        add(enableShadowPartitioning);
+
         AjaxButton testProvisioning = new AjaxButton(ID_TEST_PROVISIONING,
                 createStringResource("PageAbout.button.testProvisioning")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -369,6 +420,8 @@ public class PageAbout extends PageAdminConfiguration {
 
         AjaxButton copyEnvironmentInfo = new AjaxButton(ID_COPY_ENVIRONMENT_INFO,
                 createStringResource("PageAbout.button.copyEnvironmentInfo")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -383,6 +436,8 @@ public class PageAbout extends PageAdminConfiguration {
 
         AjaxButton factoryDefault = new AjaxButton(ID_FACTORY_DEFAULT,
                 createStringResource("PageAbout.button.factoryDefault")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -463,6 +518,8 @@ public class PageAbout extends PageAdminConfiguration {
 
     private IModel<List<LabeledString>> getItems() {
         return new LoadableModel<>(false) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -524,6 +581,47 @@ public class PageAbout extends PageAdminConfiguration {
         target.add(getFeedbackPanel());
     }
 
+    private void enableShadowPartitioningPerformed(AjaxRequestTarget target) {
+        OperationResult result = new OperationResult(OPERATION_SUBMIT_REPARTITION);
+        try {
+            Task task = getTaskManager().createTaskInstance();
+            authorize(AuthorizationConstants.AUTZ_ALL_URL, null, null, null, null, result);
+
+            var enablePartitioningDelta = PrismContext.get().deltaFor(SystemConfigurationType.class)
+                    .item(SystemConfigurationType.F_INTERNALS, InternalsConfigurationType.F_REPOSITORY, RepositoryConfigurationType.F_AUTO_CREATE_PARTITIONS_ON_ADD)
+                    .add(true)
+                    .asObjectDelta(SystemObjectsType.SYSTEM_CONFIGURATION.value());
+            var activity = new ActivityDefinitionType()
+                    .composition(new ActivityCompositionType()
+                            .activity(new ActivityDefinitionType()
+                                    .order(1)
+                                    .work(new WorkDefinitionsType()
+                                            .explicitChangeExecution(new ExplicitChangeExecutionWorkDefinitionType()
+                                                    .delta(DeltaConvertor.toObjectDeltaType(enablePartitioningDelta))
+                                            )
+                                    ))
+                            .activity(new ActivityDefinitionType()
+                                    .order(2)
+                                    .work(new WorkDefinitionsType()
+                                            .repartitioning(new RepartitioningWorkDefinitionType())
+                                    )));
+
+            getModelInteractionService().submit(
+                    activity,
+                    ActivitySubmissionOptions.create().withTaskTemplate(
+                            new TaskType()
+                                    .name("Repartition Repository")
+                                    .channel(SchemaConstants.CHANNEL_USER_URI)),
+                    task, result);
+        } catch (CommonException | RuntimeException e) {
+            result.recordFatalError(e);
+        } finally {
+            result.computeStatusIfUnknown();
+        }
+        showResult(result);
+        target.add(getFeedbackPanel());
+    }
+
     private void testProvisioningPerformed(AjaxRequestTarget target) {
         Task task = createSimpleTask(OPERATION_TEST_REPOSITORY);
 
@@ -535,6 +633,8 @@ public class PageAbout extends PageAdminConfiguration {
 
     private Popupable getDeleteAllObjectsConfirmationPanel() {
         return new DeleteConfirmationPanel(getMainPopupBodyId(), createStringResource("PageAbout.message.deleteAllObjects")) {
+
+            @Serial
             private static final long serialVersionUID = 1L;
 
             @Override
@@ -725,6 +825,7 @@ public class PageAbout extends PageAdminConfiguration {
         OperationResult result = parent.createSubresult(OPERATION_INITIAL_IMPORT);
 
         ModelService modelService = context.getBean(ModelService.class);
+        ModelInteractionService modelInteractionService = context.getBean(ModelInteractionService.class);
         CacheDispatcher cacheDispatcher = context.getBean(CacheDispatcher.class);
         TaskManager taskManager = context.getBean(TaskManager.class);
         PrismContext prismContext = context.getBean(PrismContext.class);
@@ -736,6 +837,7 @@ public class PageAbout extends PageAdminConfiguration {
             initialDataImport.setTaskManager(taskManager);
             initialDataImport.setPrismContext(prismContext);
             initialDataImport.setConfiguration(midpointConfiguration);
+            initialDataImport.setModelInteractionService(modelInteractionService);
             initialDataImport.init(true);
 
             // TODO consider if we need to go clusterwide here

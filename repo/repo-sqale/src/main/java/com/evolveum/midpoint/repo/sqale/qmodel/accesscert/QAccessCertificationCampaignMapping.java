@@ -6,6 +6,7 @@
  */
 package com.evolveum.midpoint.repo.sqale.qmodel.accesscert;
 
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCampaignType.*;
 
 import java.util.*;
@@ -88,8 +89,8 @@ public class QAccessCertificationCampaignMapping
     }
 
     @Override
-    protected PathSet fullObjectItemsToSkip() {
-        return PathSet.of(F_CASE);
+    protected void customizeFullObjectItemsToSkip(PathSet mutableSet) {
+        mutableSet.add(F_CASE);
     }
 
     @Override
@@ -121,7 +122,7 @@ public class QAccessCertificationCampaignMapping
                 o -> row.ownerRefTargetOid = o,
                 t -> row.ownerRefTargetType = t,
                 r -> row.ownerRefRelationId = r);
-        row.stageNumber = schemaObject.getStageNumber();
+        row.stageNumber = or0(schemaObject.getStageNumber());
         row.startTimestamp =
                 MiscUtil.asInstant(schemaObject.getStartTimestamp());
         row.state = schemaObject.getState();

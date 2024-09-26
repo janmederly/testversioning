@@ -1,3 +1,11 @@
+---
+midpoint-feature: sod
+doc-type: config
+compliance:
+    iso27001:
+        '5.3':
+            description: 'Description of SoD mechanism configuration.'
+---
 = Segregation of Duties
 :page-wiki-name: Segregation of Duties
 :page-wiki-id: 4423716
@@ -5,10 +13,6 @@
 :page-wiki-metadata-create-date: 2012-04-18T15:57:03.768+02:00
 :page-wiki-metadata-modify-user: mederly
 :page-wiki-metadata-modify-date: 2021-03-02T23:37:12.075+01:00
-:page-since: "3.5"
-:page-since-improved: [ "3.6" ]
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: yellow
 
 Segregation of Duties (SoD) is a mechanisms that prevents accumulating of too much power in the hands of a single person.
@@ -82,6 +86,8 @@ The approver may decide whether to allow assignment of conflicting roles.
 If the operation is approved then it proceeds.
 (Optionally you can request recording the situation in the assignments by using "record" policy action.)
 
+* *Record* means that the conflict will be recorded using a feature:object-mark[mark].
+The mark can be used to report violations, and gradually enforce the policy.
 
 == Exclusion Class
 
@@ -103,10 +109,7 @@ The controlling metarole defines exclusion of all executive roles:
                 <exclusion>
                     <targetRef type="RoleType">
                         <filter>
-                            <q:equal>
-                                <q:path>subtype</q:path>
-                                <q:value>executive</q:value>
-                            </q:equal>
+                            <q:text>subtype = "executive"</q:text>
                         </filter>
                         <resolutionTime>run</resolutionTime>
                     </targetRef>
@@ -124,38 +127,12 @@ The metarole above is to be assigned to controlling roles (where subtype is diff
 Thus it is not possible to mix executive and controlling roles.
 
 
-== Legacy Configuration
-
-In midPoint 3.4 and earlier there was no policy rules feature.
-Therefore the role exclusion was defined as:
-
-[source,xml]
-----
-<role>
-    <name>Judge</name>
-    <inducement>
-        <construction>
-            <resourceRef oid="ef2bc95b-76e0-59e2-86d6-3d4f02d3ffff" type="c:ResourceType"/>
-        </construction>
-    </inducement>
-    <exclusion>
-        <targetRef oid="12345678-d34d-b33f-f00d-987987987988" type="c:RoleType"/>
-        <policy>enforce</policy>
-    </exclusion>
-</role>
-
-----
-
-This configuration is currently deprecated.
-However it still works.
-And while currently there are no specific plans to remove it we recommend to migrate to configuration based on xref:/midpoint/reference/roles-policies/policy-rules/[Policy Rules] at the earliest convenient moment.
-The policy rules are much more flexible mechanism.
-
 == History
 
-Basic role exclusion with strict enforcement is available in midPoint since version 2.x. The definition based on xref:/midpoint/reference/roles-policies/policy-rules/[Policy Rules] is available since midPoint 3.5. However this is still limited to strict enforcement.
+Basic role exclusion with strict enforcement is available in midPoint since version 2.x. The definition based on xref:/midpoint/reference/roles-policies/policy-rules/[Policy Rules] is available since midPoint 3.5. However, this was still limited to strict enforcement.
 The other policy actions are available since midPoint 3.6.
 
 == See Also
 
 * xref:/midpoint/reference/roles-policies/policy-rules/[Policy Rules]
+* xref:/midpoint/reference/roles-policies/gradual-policy-enforcement/[]

@@ -9,7 +9,10 @@ package com.evolveum.midpoint.model.impl.mining.chunk;
 
 import java.util.*;
 
+import com.evolveum.midpoint.common.mining.objects.chunk.DisplayValueOption;
 import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
+
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -24,6 +27,8 @@ import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * This class is responsible for preparing the chunk structure for role analysis in the Midpoint system.
  * It creates data structures used in the analysis process, such as chunks of user and role data for further processing.
@@ -35,20 +40,23 @@ public class CompressedMiningStructure extends BasePrepareAction {
     public MiningOperationChunk executeOperation(
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisClusterType cluster,
+            SearchFilterType objectFilter,
             boolean fullProcess,
             @NotNull RoleAnalysisProcessModeType mode,
             @NotNull OperationResult result,
             @NotNull Task task) {
-        return this.executeAction(roleAnalysisService, cluster, fullProcess, mode, handler, task, result);
+        return this.executeAction(roleAnalysisService, cluster, objectFilter, fullProcess, mode, handler, task, result, null);
     }
 
     @Override
     public @NotNull MiningOperationChunk prepareRoleBasedStructure(
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisClusterType cluster,
+            @Nullable SearchFilterType objectFilter,
             @NotNull RoleAnalysisProgressIncrement handler,
             @NotNull Task task,
-            @NotNull OperationResult result) {
+            @NotNull OperationResult result,
+            @Nullable DisplayValueOption option) {
         Map<String, PrismObject<UserType>> userExistCache = new HashMap<>();
         Map<String, PrismObject<RoleType>> roleExistCache = new HashMap<>();
         List<MiningUserTypeChunk> miningUserTypeChunks = new ArrayList<>();
@@ -58,7 +66,7 @@ public class CompressedMiningStructure extends BasePrepareAction {
         Set<String> membersOidSet = new HashSet<>();
 
         List<ObjectReferenceType> members = cluster.getMember();
-        loadRoleMap(roleAnalysisService, members, roleExistCache, userExistCache, membersOidSet, userChunk, roleMap);
+        loadRoleMap(roleAnalysisService, objectFilter, members, roleExistCache, userExistCache, membersOidSet, userChunk, roleMap);
 
         int roleMapSize = roleMap.size();
         ListMultimap<List<String>, String> roleChunk = prepareRoleChunkMap(roleMapSize, roleMap);
@@ -75,9 +83,10 @@ public class CompressedMiningStructure extends BasePrepareAction {
     public @NotNull MiningOperationChunk prepareUserBasedStructure(
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisClusterType cluster,
-            @NotNull RoleAnalysisProgressIncrement handler,
+            SearchFilterType objectFilter, @NotNull RoleAnalysisProgressIncrement handler,
             @NotNull Task task,
-            @NotNull OperationResult result) {
+            @NotNull OperationResult result,
+            @Nullable DisplayValueOption option) {
         Map<String, PrismObject<UserType>> userExistCache = new HashMap<>();
         Map<String, PrismObject<RoleType>> roleExistCache = new HashMap<>();
         List<MiningUserTypeChunk> miningUserTypeChunks = new ArrayList<>();
@@ -103,7 +112,7 @@ public class CompressedMiningStructure extends BasePrepareAction {
     public @NotNull MiningOperationChunk preparePartialRoleBasedStructure(
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisClusterType cluster,
-            @NotNull RoleAnalysisProgressIncrement handler,
+            @Nullable SearchFilterType objectFilter, @NotNull RoleAnalysisProgressIncrement handler,
             @NotNull Task task,
             @NotNull OperationResult result) {
         Map<String, PrismObject<UserType>> userExistCache = new HashMap<>();
@@ -115,7 +124,7 @@ public class CompressedMiningStructure extends BasePrepareAction {
         Set<String> membersOidSet = new HashSet<>();
 
         List<ObjectReferenceType> members = cluster.getMember();
-        loadRoleMap(roleAnalysisService, members, roleExistCache, userExistCache, membersOidSet, userChunk, roleMap);
+        loadRoleMap(roleAnalysisService, objectFilter, members, roleExistCache, userExistCache, membersOidSet, userChunk, roleMap);
 
         int roleMapSize = roleMap.size();
         ListMultimap<List<String>, String> roleChunk = prepareRoleChunkMap(roleMapSize, roleMap);
@@ -129,6 +138,7 @@ public class CompressedMiningStructure extends BasePrepareAction {
     public @NotNull MiningOperationChunk preparePartialUserBasedStructure(
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisClusterType cluster,
+            @Nullable SearchFilterType objectFilter,
             @NotNull RoleAnalysisProgressIncrement handler,
             @NotNull Task task,
             @NotNull OperationResult result) {

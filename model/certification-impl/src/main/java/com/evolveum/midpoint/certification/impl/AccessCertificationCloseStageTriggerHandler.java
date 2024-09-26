@@ -27,17 +27,18 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCampaignStateType.IN_REVIEW_STAGE;
 
 @Component
 public class AccessCertificationCloseStageTriggerHandler implements SingleTriggerHandler {
 
-    static final String HANDLER_URI = AccessCertificationConstants.NS_CERTIFICATION_TRIGGER_PREFIX + "/close-stage/handler-3";
+    public static final String HANDLER_URI = AccessCertificationConstants.NS_CERTIFICATION_TRIGGER_PREFIX + "/close-stage/handler-3";
 
     private static final Trace LOGGER = TraceManager.getTrace(AccessCertificationCloseStageTriggerHandler.class);
 
     @Autowired private TriggerHandlerRegistry triggerHandlerRegistry;
-    @Autowired private CertificationManager certificationManager;
+    @Autowired private CertificationManagerImpl certificationManager;
 
     @PostConstruct
     private void initialize() {
@@ -63,7 +64,7 @@ public class AccessCertificationCloseStageTriggerHandler implements SingleTrigge
                 return;
             }
 
-            int currentStageNumber = campaign.getStageNumber();
+            int currentStageNumber = or0(campaign.getStageNumber());
             certificationManager.closeCurrentStage(campaign.getOid(), task, result);
             if (currentStageNumber < CertCampaignTypeUtil.getNumberOfStages(campaign)) {
                 LOGGER.info("Automatically opening next stage of {}", ObjectTypeUtil.toShortString(campaign));

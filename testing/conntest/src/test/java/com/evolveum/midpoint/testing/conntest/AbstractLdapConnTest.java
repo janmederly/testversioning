@@ -16,7 +16,8 @@ import java.util.Collection;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 
-import com.evolveum.midpoint.schema.processor.ResourceAttributeDefinition;
+import com.evolveum.midpoint.prism.polystring.PolyString;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttributeDefinition;
 
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.apache.directory.api.ldap.model.entry.Entry;
@@ -43,7 +44,7 @@ import com.evolveum.midpoint.schema.SearchResultList;
 import com.evolveum.midpoint.schema.SearchResultMetadata;
 import com.evolveum.midpoint.schema.constants.MidPointConstants;
 import com.evolveum.midpoint.schema.internals.InternalCounters;
-import com.evolveum.midpoint.schema.processor.ResourceAttribute;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttribute;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.MiscSchemaUtil;
 import com.evolveum.midpoint.schema.util.ObjectQueryUtil;
@@ -658,7 +659,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         PrismObject<ShadowType> shadow = getShadowModel(shadowOid);
         display("Shadow (model)", shadow);
         accountBarbossaOid = shadow.getOid();
-        Collection<ResourceAttribute<?>> identifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
+        Collection<ShadowSimpleAttribute<?>> identifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
         accountBarbossaEntryId = (String) identifiers.iterator().next().getRealValue();
         assertNotNull("No identifier in " + shadow, accountBarbossaEntryId);
 
@@ -666,7 +667,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
 
         assertLdapPassword(USER_BARBOSSA_USERNAME, USER_BARBOSSA_PASSWORD);
 
-        ResourceAttribute<XMLGregorianCalendar> createTimestampAttribute = ShadowUtil.getAttribute(shadow, new QName(MidPointConstants.NS_RI, "createTimestamp"));
+        ShadowSimpleAttribute<XMLGregorianCalendar> createTimestampAttribute = ShadowUtil.getSimpleAttribute(shadow, new QName(MidPointConstants.NS_RI, "createTimestamp"));
         assertNotNull("No createTimestamp in " + shadow, createTimestampAttribute);
         XMLGregorianCalendar createTimestamp = createTimestampAttribute.getRealValue();
         long createTimestampMillis = XmlTypeConverter.toMillis(createTimestamp);
@@ -686,9 +687,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         ObjectDelta<ShadowType> delta = prismContext.deltaFactory().object()
                 .createEmptyModifyDelta(ShadowType.class, accountBarbossaOid);
         QName attrQName = new QName(MidPointConstants.NS_RI, "title");
-        //noinspection unchecked
-        ResourceAttributeDefinition<String> attrDef =
-                (ResourceAttributeDefinition<String>) accountDefinition.findAttributeDefinition(attrQName);
+        ShadowSimpleAttributeDefinition<String> attrDef = accountDefinition.findSimpleAttributeDefinition(attrQName);
         PropertyDelta<String> attrDelta = prismContext.deltaFactory().property().createModificationReplaceProperty(
                 ItemPath.create(ShadowType.F_ATTRIBUTES, attrQName), attrDef, "Captain");
         delta.addModification(attrDelta);
@@ -726,9 +725,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         ObjectDelta<ShadowType> delta = prismContext.deltaFactory().object()
                 .createEmptyModifyDelta(ShadowType.class, accountBarbossaOid);
         QName attrQName = new QName(MidPointConstants.NS_RI, "title");
-        //noinspection unchecked
-        ResourceAttributeDefinition<String> attrDef =
-                (ResourceAttributeDefinition<String>) accountDefinition.findAttributeDefinition(attrQName);
+        ShadowSimpleAttributeDefinition<String> attrDef = accountDefinition.findSimpleAttributeDefinition(attrQName);
         PropertyDelta<String> attrDelta = prismContext.deltaFactory().property().createModificationAddProperty(
                 ItemPath.create(ShadowType.F_ATTRIBUTES, attrQName), attrDef, "Captain");
         delta.addModification(attrDelta);
@@ -766,9 +763,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         ObjectDelta<ShadowType> delta = prismContext.deltaFactory().object()
                 .createEmptyModifyDelta(ShadowType.class, accountBarbossaOid);
         QName attrQName = new QName(MidPointConstants.NS_RI, "title");
-        //noinspection unchecked
-        ResourceAttributeDefinition<String> attrDef =
-                (ResourceAttributeDefinition<String>) accountDefinition.findAttributeDefinition(attrQName);
+        ShadowSimpleAttributeDefinition<String> attrDef = accountDefinition.findSimpleAttributeDefinition(attrQName);
         PropertyDelta<String> attrDelta = prismContext.deltaFactory().property().createModificationAddProperty(
                 ItemPath.create(ShadowType.F_ATTRIBUTES, attrQName), attrDef, "CAPTAIN");
         delta.addModification(attrDelta);
@@ -928,7 +923,12 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         PrismObject<ShadowType> repoShadow = repositoryService.getObject(ShadowType.class, shadowOid, null, result);
         display("Repo shadow after rename", repoShadow);
 
-        String repoPrimaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), String.class);
+        PolyString primaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), PolyString.class);
+        String repoPrimaryIdentifier = null;
+        if (primaryIdentifier != null) {
+            repoPrimaryIdentifier = primaryIdentifier.getOrig();
+        }
+
         if ("dn".equals(getPrimaryIdentifierAttributeName())) {
             assertEquals("Entry DN (primary identifier) was not updated in the shadow", toAccountDn(USER_CPTBARBOSSA_USERNAME).toLowerCase(), repoPrimaryIdentifier);
         } else {
@@ -975,7 +975,12 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         PrismObject<ShadowType> repoShadow = repositoryService.getObject(ShadowType.class, shadowOid, null, result);
         display("Repo shadow after rename", repoShadow);
 
-        String repoPrimaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), String.class);
+        PolyString primaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), PolyString.class);
+        String repoPrimaryIdentifier = null;
+        if (primaryIdentifier != null) {
+            repoPrimaryIdentifier = primaryIdentifier.getOrig();
+        }
+
         if ("dn".equals(getPrimaryIdentifierAttributeName())) {
             assertEquals("Entry DN (primary identifier) was not updated in the shadow", toAccountDn(USER_CPTBARBOSSA_USERNAME).toLowerCase(), repoPrimaryIdentifier);
         } else {
@@ -1229,7 +1234,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         accountBarbossaDn = entry.getDn().toString();
         assertNotNull(accountBarbossaDn);
 
-        Collection<ResourceAttribute<?>> identifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
+        Collection<ShadowSimpleAttribute<?>> identifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
         accountBarbossaEntryId = (String) identifiers.iterator().next().getRealValue();
         assertNotNull("No identifier in " + shadow, accountBarbossaEntryId);
 
@@ -1241,7 +1246,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         assertLdapGroupMember(entry, GROUP_EVIL_CN);
         assertLdapNoGroupMember(entry, GROUP_UNDEAD_CN);
 
-        IntegrationTestTools.assertAssociation(shadow, getAssociationGroupName(), groupEvilShadowOid);
+        IntegrationTestTools.assertAssociationObjectRef(shadow, getAssociationGroupName(), groupEvilShadowOid);
 
         assertLdapConnectorReasonableInstances();
         showToken();
@@ -1280,7 +1285,12 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         PrismObject<ShadowType> repoShadow = repositoryService.getObject(ShadowType.class, shadowOid, null, result);
         display("Repo shadow after rename", repoShadow);
 
-        String repoPrimaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), String.class);
+        PolyString primaryIdentifier = getAttributeValue(repoShadow, getPrimaryIdentifierAttributeQName(), PolyString.class);
+        String repoPrimaryIdentifier = null;
+        if (primaryIdentifier != null) {
+            repoPrimaryIdentifier = primaryIdentifier.getOrig();
+        }
+
         if ("dn".equals(getPrimaryIdentifierAttributeName())) {
             assertEquals("Entry DN (primary identifier) was not updated in the shadow", toAccountDn(USER_BARBOSSA_USERNAME).toLowerCase(), repoPrimaryIdentifier);
         } else {
@@ -1330,7 +1340,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         assertAssignments(userAfter, 1);
 
         String shadowOid = getSingleLinkOid(userAfter);
-        PrismObject<ShadowType> shadow = getShadowModel(shadowOid);
+        var shadow = getAbstractShadowModel(shadowOid);
         display("Shadow (model)", shadow);
 
         Entry entry = assertLdapAccount(USER_LARGO_NAME, userAfter.asObjectable().getFullName().getOrig());
@@ -1365,7 +1375,7 @@ public abstract class AbstractLdapConnTest extends AbstractLdapSynchronizationTe
         showToken();
     }
 
-    protected Entry createBilboEntry() throws LdapException, IOException {
+    protected Entry createBilboEntry() throws LdapException {
         Entry entry = createAccountEntry(
                 ACCOUNT_BILBO_UID, ACCOUNT_BILBO_CN, ACCOUNT_BILBO_GIVENNAME, ACCOUNT_BILBO_SN);
         markInvisible(entry);

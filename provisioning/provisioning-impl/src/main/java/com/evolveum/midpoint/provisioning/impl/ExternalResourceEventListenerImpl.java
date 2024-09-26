@@ -13,7 +13,8 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.evolveum.midpoint.provisioning.impl.resourceobjects.ResourceObject;
+import com.evolveum.midpoint.provisioning.ucf.api.UcfResourceObject;
+import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -32,7 +33,7 @@ import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.provisioning.api.*;
 import com.evolveum.midpoint.provisioning.impl.shadows.ShadowedExternalChange;
 import com.evolveum.midpoint.provisioning.impl.resourceobjects.ExternalResourceObjectChange;
-import com.evolveum.midpoint.schema.processor.ResourceAttribute;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttribute;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.ShadowUtil;
 import com.evolveum.midpoint.task.api.Task;
@@ -90,17 +91,19 @@ public class ExternalResourceEventListenerImpl implements ExternalResourceEventL
             ctx.assertDefinition();
 
             Object primaryIdentifierRealValue = getPrimaryIdentifierRealValue(anyShadow, event);
-            Collection<ResourceAttribute<?>> identifiers = ShadowUtil.getAllIdentifiers(anyShadow);
+            Collection<ShadowSimpleAttribute<?>> identifiers = ShadowUtil.getAllIdentifiers(anyShadow);
             if (identifiers.isEmpty()) {
                 throw new SchemaException("No identifiers");
             }
 
+            ResourceObjectDefinition definition = ctx.getObjectDefinitionRequired();
+            UcfResourceObject resourceObject = getResourceObject(event, primaryIdentifierRealValue);
             ExternalResourceObjectChange resourceObjectChange = new ExternalResourceObjectChange(
                     currentSequenceNumber.getAndIncrement(),
                     primaryIdentifierRealValue,
-                    ctx.getObjectClassDefinition(),
+                    definition,
                     identifiers,
-                    getResourceObject(event, primaryIdentifierRealValue),
+                    resourceObject,
                     event.getObjectDelta(),
                     ctx);
             ShadowedExternalChange adoptedChange = new ShadowedExternalChange(resourceObjectChange);
@@ -137,10 +140,10 @@ public class ExternalResourceEventListenerImpl implements ExternalResourceEventL
     }
 
     private Object getPrimaryIdentifierRealValue(PrismObject<ShadowType> shadow, ExternalResourceEvent context) throws SchemaException {
-        Collection<ResourceAttribute<?>> primaryIdentifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
+        Collection<ShadowSimpleAttribute<?>> primaryIdentifiers = ShadowUtil.getPrimaryIdentifiers(shadow);
 
         Collection<Object> primaryIdentifierRealValues = new HashSet<>();
-        for (ResourceAttribute<?> primaryIdentifier : emptyIfNull(primaryIdentifiers)) {
+        for (ShadowSimpleAttribute<?> primaryIdentifier : emptyIfNull(primaryIdentifiers)) {
             primaryIdentifierRealValues.addAll(primaryIdentifier.getRealValues());
         }
         if (primaryIdentifierRealValues.isEmpty()) {
@@ -186,11 +189,15 @@ public class ExternalResourceEventListenerImpl implements ExternalResourceEventL
     }
 
     // consider moving into ResourceEventDescription
-    private ResourceObject getResourceObject(ExternalResourceEvent eventDescription, Object primaryIdentifierValue) {
+    private UcfResourceObject getResourceObject(ExternalResourceEvent eventDescription, Object primaryIdentifierValue) {
         if (eventDescription.getResourceObject() != null) {
-            return ResourceObject.fromPrismObject(eventDescription.getResourceObject(), primaryIdentifierValue);
+            return UcfResourceObject.of(
+                    eventDescription.getResourceObject(),
+                    primaryIdentifierValue);
         } else if (ObjectDelta.isAdd(eventDescription.getObjectDelta())) {
-            return ResourceObject.fromPrismObject(eventDescription.getObjectDelta().getObjectToAdd(), primaryIdentifierValue);
+            return UcfResourceObject.of(
+                    eventDescription.getObjectDelta().getObjectToAdd(),
+                    primaryIdentifierValue);
         } else {
             return null;
         }

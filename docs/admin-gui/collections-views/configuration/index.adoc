@@ -1,3 +1,7 @@
+---
+midpoint-feature: object-collection-and-view
+doc-type: config
+---
 = Object Collections and Views Configuration
 :page-nav-title: Configuration
 :page-display-order: 50
@@ -9,6 +13,9 @@
 :page-wiki-metadata-modify-date: 2021-02-26T14:25:04.587+01:00
 :page-since: "4.0"
 :page-toc: top
+:page-upkeep-status: yellow
+:page-upkeep-note: Collection domain is no longer experimental. The page is probably old, we need to review this page.
+
 
 
 == Introduction
@@ -51,10 +58,7 @@ The collection usually specifies a search filter that is used to find all the ob
     <name>Active Users</name>
     <type>UserType</type>
     <filter>
-            <q:equal>
-                    <q:path>activation/effectiveStatus</q:path>
-                    <q:value>enabled</q:value>
-            </q:equal>
+        <q:text>activation/effectiveStatus="enabled"</q:text>
     </filter>
 </objectCollection>
 ----
@@ -77,10 +81,7 @@ For example _active employees_ collection may be based on _employee_ archetype:
     <name>Active employees</name>
     <type>UserType</type>
     <filter>
-            <q:equal>
-                    <q:path>activation/effectiveStatus</q:path>
-                    <q:value>enabled</q:value>
-            </q:equal>
+        <q:text>activation/effectiveStatus="enabled"</q:text>
     </filter>
     <baseCollection>
             <collectionRef oid="7135e68c-ee53-11e8-8025-170b77da3fd6" type="ArchetypeType"/> <!-- Employee archetype -->
@@ -99,7 +100,7 @@ The use of collections in midPoint 4.0 is somehow limited.
 In future midPoint releases, Collections may be reused in authorizations and policy rules.
 E.g. It would be nice to use just "employees" as a criterion in xref:/midpoint/reference/security/authorization/[authorizations] instead of copying the search filter everywhere.
 Similarly, this collection may be reused in policy rule specifications.
-In the future there may be scanner tasks that scan just the objects that belong to the collections, bulk actions for the collections and similar improvements.
+In the future there may be scanner tasks that scan just the objects that belong to the collections, actions for the collections and similar improvements.
 
 Reusing the definition on many places is not just convenience.
 It is important for consistency of configuration.
@@ -235,6 +236,9 @@ MidPoint comes with default collections defined for most of the objects. These d
 
 | allObjectTemplates
 | All object templates
+
+| allSchemas
+| All schemas
 
 |===
 

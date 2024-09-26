@@ -7,7 +7,8 @@
 package com.evolveum.midpoint.provisioning.ucf.api;
 
 import com.evolveum.midpoint.prism.PrismContext;
-import com.evolveum.midpoint.schema.processor.ResourceAttributeDefinition;
+import com.evolveum.midpoint.prism.delta.ItemDelta;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttributeDefinition;
 import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
 import com.evolveum.midpoint.util.DebugDumpable;
 import com.evolveum.midpoint.util.exception.SchemaException;
@@ -36,12 +37,14 @@ public abstract class Operation implements DebugDumpable {
                 .anyMatch(operation -> operation.isRename(objDef));
     }
 
+    public abstract @NotNull ItemDelta<?, ?> getItemDelta();
+
     /** Is this an identifier change? */
     public abstract boolean isRename(@NotNull ResourceObjectDefinition objDef);
 
     public abstract boolean isAttributeDelta();
 
-    public abstract @Nullable ResourceAttributeDefinition<?> getAttributeDefinitionIfApplicable(
+    public abstract @Nullable ShadowSimpleAttributeDefinition<?> getAttributeDefinitionIfApplicable(
             @NotNull ResourceObjectDefinition objDef);
 
     /** Converts this Operation into respective xType bean */

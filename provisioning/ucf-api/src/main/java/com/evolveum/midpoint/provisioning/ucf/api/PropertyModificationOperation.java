@@ -7,9 +7,12 @@
 package com.evolveum.midpoint.provisioning.ucf.api;
 
 import com.evolveum.midpoint.prism.PrismContext;
+import com.evolveum.midpoint.prism.PrismPropertyValue;
+import com.evolveum.midpoint.prism.delta.ItemDelta;
 import com.evolveum.midpoint.prism.delta.PropertyDelta;
+import com.evolveum.midpoint.prism.path.ItemName;
 import com.evolveum.midpoint.schema.DeltaConvertor;
-import com.evolveum.midpoint.schema.processor.ResourceAttributeDefinition;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttributeDefinition;
 import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
 import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.util.exception.SchemaException;
@@ -53,6 +56,11 @@ public final class PropertyModificationOperation<T> extends Operation {
     }
 
     @Override
+    public @NotNull ItemDelta<?, ?> getItemDelta() {
+        return getPropertyDelta();
+    }
+
+    @Override
     public boolean isRename(@NotNull ResourceObjectDefinition objDef) {
         return objDef.isIdentifier(propertyDelta.getElementName());
     }
@@ -63,9 +71,9 @@ public final class PropertyModificationOperation<T> extends Operation {
     }
 
     @Override
-    public @Nullable ResourceAttributeDefinition<?> getAttributeDefinitionIfApplicable(@NotNull ResourceObjectDefinition objDef) {
+    public @Nullable ShadowSimpleAttributeDefinition<?> getAttributeDefinitionIfApplicable(@NotNull ResourceObjectDefinition objDef) {
         if (isAttributeDelta()) {
-            return objDef.findAttributeDefinition(propertyDelta.getElementName());
+            return objDef.findSimpleAttributeDefinition(propertyDelta.getElementName());
         } else {
             return null;
         }
@@ -122,9 +130,33 @@ public final class PropertyModificationOperation<T> extends Operation {
 
     @Override
     public PropertyModificationOperationType asBean(PrismContext prismContext) throws SchemaException {
-        PropertyModificationOperationType bean = new PropertyModificationOperationType(prismContext);
+        PropertyModificationOperationType bean = new PropertyModificationOperationType();
         bean.getDelta().addAll(DeltaConvertor.toItemDeltaTypes(propertyDelta));
         bean.setMatchingRule(matchingRuleQName);
         return bean;
+    }
+
+    public void swallowValue(@NotNull PrismPropertyValue<?> value, boolean toPlusSet) {
+        if (toPlusSet) {
+            swallowValueToAdd(value);
+        } else {
+            swallowValueToDelete(value);
+        }
+    }
+
+    // Let's ignore the type safety for now
+    private void swallowValueToAdd(@NotNull PrismPropertyValue<?> value) {
+        //noinspection unchecked
+        propertyDelta.addValueToAdd((PrismPropertyValue<T>) value);
+    }
+
+    // Let's ignore the type safety for now
+    public void swallowValueToDelete(@NotNull PrismPropertyValue<?> value) {
+        //noinspection unchecked
+        propertyDelta.addValueToDelete((PrismPropertyValue<T>) value);
+    }
+
+    public @NotNull ItemName getItemName() {
+        return propertyDelta.getElementName();
     }
 }

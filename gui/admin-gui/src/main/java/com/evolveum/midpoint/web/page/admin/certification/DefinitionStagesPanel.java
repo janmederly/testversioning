@@ -9,6 +9,7 @@ package com.evolveum.midpoint.web.page.admin.certification;
 
 import com.evolveum.midpoint.gui.api.component.BasePanel;
 import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
+import com.evolveum.midpoint.gui.impl.page.admin.certification.PageCertDefinition;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.web.component.AjaxSubmitButton;
 import com.evolveum.midpoint.web.component.TabbedPanel;
@@ -21,7 +22,6 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.extensions.markup.html.tabs.AbstractTab;
 import org.apache.wicket.extensions.markup.html.tabs.ITab;
 import org.apache.wicket.markup.html.WebMarkupContainer;
-import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.Model;
 import org.jetbrains.annotations.NotNull;
@@ -29,6 +29,8 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 
 public class DefinitionStagesPanel extends BasePanel<List<StageDefinitionDto>> {
 
@@ -197,9 +199,9 @@ public class DefinitionStagesPanel extends BasePanel<List<StageDefinitionDto>> {
 
     private StageDefinitionDto createNewStageDefinitionDto(){
         try {
-            AccessCertificationStageDefinitionType def = new AccessCertificationStageDefinitionType(parentPage.getPrismContext());
+            AccessCertificationStageDefinitionType def = new AccessCertificationStageDefinitionType();
             def.setNumber(getModel().getObject().size() + 1);
-            def.setName(DEFAULT_STAGE_NAME_PREFIX + def.getNumber());
+            def.setName(DEFAULT_STAGE_NAME_PREFIX + or0(def.getNumber()));
             return new StageDefinitionDto(def, parentPage);
         } catch (SchemaException e) {
             throw new IllegalStateException(e);

@@ -80,15 +80,26 @@ public class ResourceSchemaUtil {
             @Nullable String intent,
             @Nullable QName objectClassName) throws SchemaException, ConfigurationException {
 
+        if (kind == null && intent == null && objectClassName == null) {
+            return null; // Exotic case. We don't need the schema in this situation. See TestOpenDjNegative.test195.
+        }
+
+        ResourceSchema resourceSchema = ResourceSchemaFactory.getCompleteSchemaRequired(resource);
+        return findObjectDefinitionPrecisely(resourceSchema, kind, intent, objectClassName, resource);
+    }
+
+    static ResourceObjectDefinition findObjectDefinitionPrecisely(
+            @NotNull ResourceSchema resourceSchema,
+            @Nullable ShadowKindType kind,
+            @Nullable String intent,
+            @Nullable QName objectClassName, ResourceType resource) throws SchemaException, ConfigurationException {
+
         argCheck(kind != ShadowKindType.UNKNOWN && !SchemaConstants.INTENT_UNKNOWN.equals(intent),
                 "Unknown kind/intent values are not supported here: %s/%s/%s", kind, intent, objectClassName);
 
         if (kind == null && intent == null && objectClassName == null) {
             return null;
         }
-
-        ResourceSchema resourceSchema = ResourceSchemaFactory.getCompleteSchemaRequired(resource);
-
         ResourceObjectDefinition objectDefinition;
         if (kind != null) {
             objectDefinition =
@@ -170,22 +181,5 @@ public class ResourceSchemaUtil {
                 .map(ResourceObjectDefinition::getObjectClassName)
                 .collect(Collectors.toSet());
         return objectClassNames.size() <= 1;
-    }
-
-    /** TEMPORARY */
-    public static boolean isIgnored(ResourceAttributeDefinitionType attrDefBean) throws SchemaException {
-        List<PropertyLimitationsType> limitations = attrDefBean.getLimitations();
-        if (limitations == null) {
-            return false;
-        }
-        // TODO review as part of MID-7929 resolution
-        PropertyLimitationsType limitationsBean = MiscSchemaUtil.getLimitationsLabeled(limitations, LayerType.MODEL);
-        if (limitationsBean == null) {
-            return false;
-        }
-        if (limitationsBean.getProcessing() != null) {
-            return limitationsBean.getProcessing() == ItemProcessingType.IGNORE;
-        }
-        return false;
     }
 }

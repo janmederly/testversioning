@@ -10,37 +10,45 @@ package com.evolveum.midpoint.common.mining.objects.detection;
 import java.io.Serializable;
 import java.util.Set;
 
+import com.evolveum.midpoint.xml.ns._public.common.common_3.ObjectReferenceType;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisDetectionPatternType;
+
 /**
  * The `DetectedPattern` class represents a detected pattern in role analysis. It contains information about the roles,
  * users, and the cluster metric associated with the detected pattern.
  */
-public class DetectedPattern implements Serializable {
+public class DetectedPattern extends BasePattern implements Serializable {
 
-    public static final String F_METRIC = "clusterMetric";
+    public static final String F_METRIC = "metric";
 
     public static final String F_TYPE = "searchMode";
+    ObjectReferenceType clusterRef;
 
-    private final Set<String> roles;
-    private final Set<String> users;
-    private final Double clusterMetric;
 
-    public DetectedPattern(Set<String> roles, Set<String> users,
-            double clusterMetric) {
-        this.roles = roles;
-        this.users = users;
-        this.clusterMetric = clusterMetric;
+    public DetectedPattern(Set<String> roles, Set<String> users, double clusterMetric, Long patternId) {
+        super(roles, users, clusterMetric, patternId);
     }
 
-    public Set<String> getRoles() {
-        return roles;
+    public DetectedPattern(Set<String> roles, Set<String> users, double clusterMetric, Long patternId, String roleOid, PatternType patternType) {
+        super(roles, users, clusterMetric, patternId, roleOid, patternType);
     }
 
-    public Set<String> getUsers() {
-        return users;
+    public ObjectReferenceType getClusterRef() {
+        return clusterRef;
     }
 
-    public double getClusterMetric() {
-        return clusterMetric;
+    public void setClusterRef(ObjectReferenceType clusterRef) {
+        this.clusterRef = clusterRef;
     }
+
+    public void setSessionRef(ObjectReferenceType sessionRef) {
+        this.sessionRef = sessionRef;
+    }
+
+    public ObjectReferenceType getSessionRef() {
+        return sessionRef;
+    }
+
+
 
 }

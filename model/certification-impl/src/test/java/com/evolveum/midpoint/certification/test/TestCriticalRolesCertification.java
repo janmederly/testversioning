@@ -8,20 +8,26 @@
 package com.evolveum.midpoint.certification.test;
 
 import com.evolveum.midpoint.prism.PrismObject;
-import com.evolveum.midpoint.prism.query.ObjectQuery;
+import com.evolveum.midpoint.repo.common.activity.run.task.ActivityBasedTaskHandler;
 import com.evolveum.midpoint.schema.constants.SchemaConstants;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.test.util.TestUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+
+import org.apache.commons.collections4.CollectionUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.testng.annotations.Test;
 
+import javax.xml.datatype.XMLGregorianCalendar;
 import java.io.File;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.evolveum.midpoint.schema.util.CertCampaignTypeUtil.norm;
+import static com.evolveum.midpoint.util.MiscUtil.or0;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCampaignStateType.CLOSED;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationCampaignStateType.IN_REMEDIATION;
 import static com.evolveum.midpoint.xml.ns._public.common.common_3.AccessCertificationResponseType.ACCEPT;
@@ -46,6 +52,8 @@ public class TestCriticalRolesCertification extends AbstractCertificationTest {
 
     private static final File CERT_DEF_FILE = new File(COMMON_DIR, "certification-of-critical-roles.xml");
 
+    @Autowired protected ActivityBasedTaskHandler activityBasedTaskHandler;
+
     private AccessCertificationDefinitionType certificationDefinition;
 
     private String campaignOid;
@@ -55,6 +63,7 @@ public class TestCriticalRolesCertification extends AbstractCertificationTest {
         super.initSystem(initTask, initResult);
         assignRole(USER_JACK_OID, ROLE_CTO_OID);
         userJack = getObjectViaRepo(UserType.class, USER_JACK_OID).asObjectable();
+        activityBasedTaskHandler.setAvoidAutoAssigningArchetypes(false);
     }
 
     @Test
@@ -109,6 +118,8 @@ jack->CTO                   none (A) -> A
     @Test
     public void test020OpenFirstStage() throws Exception {
         // GIVEN
+        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -116,12 +127,17 @@ jack->CTO                   none (A) -> A
 
         // WHEN
         when();
-        certificationManager.openNextStage(campaignOid, task, result);
+        certificationService.openNextStage(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getFirstStageTasks(campaignOid, startTime, result);
+        //getNextStageTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign in stage 1", campaign);
@@ -249,6 +265,8 @@ jack->CTO                   none (A) -> A
     @Test
     public void test200OpenSecondStage() throws Exception {
         // GIVEN
+        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -256,12 +274,16 @@ jack->CTO                   none (A) -> A
 
         // WHEN
         when();
-        certificationManager.openNextStage(campaignOid, task, result);
+        certificationService.openNextStage(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getNextStageTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign in stage 2", campaign);
@@ -499,6 +521,8 @@ jack->CTO                   none (A) -> A       none (A) -> A
     @Test
     public void test300OpenThirdStage() throws Exception {
         // GIVEN
+        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -506,12 +530,16 @@ jack->CTO                   none (A) -> A       none (A) -> A
 
         // WHEN
         when();
-        certificationManager.openNextStage(campaignOid, task, result);
+        certificationService.openNextStage(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getNextStageTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign in stage 3", campaign);
@@ -740,6 +768,8 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
     @Test
     public void test400OpenFourthStage() throws Exception {
         // GIVEN
+        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -747,12 +777,16 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
 
         // WHEN
         when();
-        certificationManager.openNextStage(campaignOid, task, result);
+        certificationService.openNextStage(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getNextStageTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign in stage 4", campaign);
@@ -980,6 +1014,8 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
     @Test
     public void test495StartRemediation() throws Exception {
         // GIVEN
+        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -997,16 +1033,13 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
         display("campaign after remediation start", campaign);
         assertTrue("wrong campaign state: " + campaign.getState(), campaign.getState() == CLOSED || campaign.getState() == IN_REMEDIATION);
 
-        ObjectQuery query = prismContext.queryFor(TaskType.class)
-                .item(TaskType.F_OBJECT_REF).ref(campaign.getOid())
-                .build();
-        List<PrismObject<TaskType>> tasks = taskManager.searchObjects(TaskType.class, query, null, result);
+        List<PrismObject<TaskType>> tasks = getRemediationTasks(campaignOid, startTime, result);
         assertEquals("unexpected number of related tasks", 1, tasks.size());
         waitForTaskFinish(tasks.get(0).getOid());
 
         campaign = getCampaignWithCases(campaignOid);
         assertEquals("wrong campaign state", CLOSED, campaign.getState());
-        assertEquals("wrong campaign stage", 5, campaign.getStageNumber());
+        assertEquals("wrong campaign stage", 5, or0(campaign.getStageNumber()));
         assertDefinitionAndOwner(campaign, certificationDefinition);
         assertApproximateTime("end time", new Date(), campaign.getEndTimestamp());
         assertEquals("wrong # of stages", 4, campaign.getStage().size());
@@ -1071,14 +1104,17 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
         // THEN
         userAdministrator = getUser(USER_ADMINISTRATOR_OID).asObjectable();
         display("administrator", userAdministrator);
-        AssignmentType assignment = findAssignmentByTargetRequired(userAdministrator.asPrismObject(), ROLE_COO_OID);
-        assertCertificationMetadata(assignment.getMetadata(), SchemaConstants.MODEL_CERTIFICATION_OUTCOME_ACCEPT,
-                new HashSet<>(asList(USER_ADMINISTRATOR_OID, USER_ELAINE_OID, USER_CHEESE_OID)), singleton("administrator: ok"));
+        assertCertificationMetadata(
+                findAssignmentByTargetRequired(userAdministrator.asPrismObject(), ROLE_COO_OID),
+                SchemaConstants.MODEL_CERTIFICATION_OUTCOME_ACCEPT,
+                new HashSet<>(asList(USER_ADMINISTRATOR_OID, USER_ELAINE_OID, USER_CHEESE_OID)),
+                singleton("administrator: ok"));
     }
 
     @Test
     public void test500Reiterate() throws Exception {
         login(getUserFromRepo(USER_ADMINISTRATOR_OID));
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
 
         // GIVEN
         Task task = getTestTask();
@@ -1091,12 +1127,16 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
         when();
 
         //certificationManager.closeCampaign(campaignOid, true, task, result);
-        certificationManager.reiterateCampaign(campaignOid, task, result);
+        certificationManager.reiterateCampaignTask(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getReiterationTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign after reiteration", campaign);
@@ -1168,9 +1208,12 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
 */
 
 
-    @Test
+    //TODO temporarily disabled, change in behavior. now also empty stage is generated and not skipped by default
+    @Test(enabled = false)
     public void test510OpenNextStage() throws Exception {           // next stage is 2 (because the first one has no work items)
         // GIVEN
+//        clock.resetOverride();
+        XMLGregorianCalendar startTime = clock.currentTimeXMLGregorianCalendar();
         Task task = getTestTask();
         task.setOwner(userAdministrator.asPrismObject());
         OperationResult result = task.getResult();
@@ -1178,12 +1221,16 @@ jack->CTO                   none (A) -> A       none (A) -> A             | A   
 
         // WHEN
         when();
-        certificationManager.openNextStage(campaignOid, task, result);
+        certificationService.openNextStage(campaignOid, task, result);
 
         // THEN
         then();
         result.computeStatus();
-        TestUtil.assertSuccess(result);
+        TestUtil.assertInProgressOrSuccess(result);
+
+        List<PrismObject<TaskType>> tasks = getNextStageTasks(campaignOid, startTime, result);
+        assertEquals("unexpected number of related tasks", 1, tasks.size());
+        waitForTaskFinish(tasks.get(0).getOid());
 
         AccessCertificationCampaignType campaign = getCampaignWithCases(campaignOid);
         display("campaign in stage 2", campaign);

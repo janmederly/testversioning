@@ -12,25 +12,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.xml.datatype.XMLGregorianCalendar;
 
 import org.apache.commons.lang3.Validate;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.stereotype.Component;
 
 import com.evolveum.midpoint.prism.PrismObject;
-import com.evolveum.midpoint.prism.PrismPropertyValue;
 import com.evolveum.midpoint.prism.delta.ItemDelta;
-import com.evolveum.midpoint.prism.delta.PropertyDelta;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
 import com.evolveum.midpoint.provisioning.api.GenericConnectorException;
 import com.evolveum.midpoint.provisioning.api.LiveSyncToken;
 import com.evolveum.midpoint.provisioning.impl.ProvisioningContext;
+import com.evolveum.midpoint.provisioning.impl.RepoShadow;
 import com.evolveum.midpoint.provisioning.impl.TokenUtil;
 import com.evolveum.midpoint.provisioning.ucf.api.*;
 import com.evolveum.midpoint.provisioning.ucf.api.async.UcfAsyncUpdateChangeListener;
 import com.evolveum.midpoint.schema.SearchResultMetadata;
 import com.evolveum.midpoint.schema.processor.ResourceObjectIdentification;
-import com.evolveum.midpoint.schema.result.*;
+import com.evolveum.midpoint.schema.result.AsynchronousOperationQueryable;
+import com.evolveum.midpoint.schema.result.AsynchronousOperationResult;
+import com.evolveum.midpoint.schema.result.OperationResult;
+import com.evolveum.midpoint.schema.result.OperationResultStatus;
 import com.evolveum.midpoint.schema.util.SchemaDebugUtil;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.util.logging.Trace;
@@ -48,7 +49,7 @@ import com.evolveum.midpoint.xml.ns._public.resource.capabilities_3.UpdateCapabi
  *
  * . protected objects
  * . simulated activation (delegated to {@link ActivationConverter})
- * . entitlements (delegated to {@link EntitlementReader} and {@link EntitlementConverter})
+ * . simulated entitlements (delegated to {@link EntitlementReader} and {@link EntitlementConverter})
  * . script execution
  * . avoid duplicate values
  * . attributes returned by default/not returned by default
@@ -77,32 +78,34 @@ public class ResourceObjectConverter {
     private static final Trace LOGGER = TraceManager.getTrace(ResourceObjectConverter.class);
 
     /**
-     * For object-to-subject entitlements, the {@link ShadowAssociationType#F_IDENTIFIERS} containers can contain
-     * the full object ({@link UcfResourceObject}) of the relevant entitlement, to avoid is repeated fetching
-     * for the sake of the shadowization.
-     */
-    public static final String ENTITLEMENT_OBJECT_KEY = ResourceObjectConverter.class.getName() + ".entitlementObject";
-
-    /**
      * Fetches the resource object by its primary identifier(s).
-     *
-     * Returns `null` if the resource is caching-only, and the `repoShadow` is `null`.
-     * In all other "unavailability" cases, appropriate exception is thrown.
-     *
-     * @param repoShadow Used when read capability is "caching only"
+     * The resource must have "full" reading capability (i.e., no caching-only).
      */
-    @Contract("_, _, _, !null, _, _ -> !null")
-    public CompleteResourceObject fetchResourceObject(
+    public @NotNull CompleteResourceObject fetchResourceObject(
             @NotNull ProvisioningContext ctx,
             @NotNull ResourceObjectIdentification.WithPrimary primaryIdentification,
-            @Nullable AttributesToReturn attributesToReturn,
-            @Nullable ShadowType repoShadow,
+            @Nullable ShadowItemsToReturn shadowItemsToReturn,
             boolean fetchAssociations,
             @NotNull OperationResult result)
             throws ObjectNotFoundException, CommunicationException, SchemaException, SecurityViolationException,
             ConfigurationException, ExpressionEvaluationException {
         return ResourceObjectFetchOperation.execute(
-                ctx, primaryIdentification, fetchAssociations, attributesToReturn, repoShadow, result);
+                ctx, primaryIdentification, fetchAssociations, shadowItemsToReturn, result);
+    }
+
+    /**
+     * "Completes" the provided "raw" resource object, i.e. executes
+     * {@link ResourceObjectCompleter#completeResourceObject(ProvisioningContext, ExistingResourceObjectShadow, boolean, OperationResult)}.
+     */
+    public @NotNull CompleteResourceObject completeResourceObject(
+            @NotNull ProvisioningContext ctx,
+            @NotNull ExistingResourceObjectShadow rawObject,
+            boolean fetchAssociations,
+            @NotNull OperationResult result)
+            throws ObjectNotFoundException, CommunicationException, SchemaException, SecurityViolationException,
+            ConfigurationException, ExpressionEvaluationException {
+
+        return ResourceObjectCompleter.completeResourceObject(ctx, rawObject, fetchAssociations, result);
     }
 
     /**
@@ -129,7 +132,6 @@ public class ResourceObjectConverter {
             return ResourceObjectFetchOperation.execute(
                     ctx, primary, fetchAssociations,
                     ctx.createAttributesToReturn(),
-                    null,
                     result);
         } else if (identification instanceof ResourceObjectIdentification.SecondaryOnly secondaryOnly) {
             return ResourceObjectLocateOperation.execute(ctx, secondaryOnly, fetchAssociations, result);
@@ -144,11 +146,11 @@ public class ResourceObjectConverter {
             @Nullable ObjectQuery query,
             boolean fetchAssociations,
             @Nullable FetchErrorReportingMethodType errorReportingMethod,
-            @NotNull OperationResult parentResult)
+            @NotNull OperationResult result)
             throws SchemaException, CommunicationException, ObjectNotFoundException, ConfigurationException,
             SecurityViolationException, ExpressionEvaluationException {
-        return new ResourceObjectSearchOperation(ctx, resultHandler, query, fetchAssociations, errorReportingMethod)
-                .execute(parentResult);
+        return ResourceObjectSearchOperation.execute(
+                ctx, resultHandler, query, fetchAssociations, errorReportingMethod, result);
     }
 
     public Integer countResourceObjects(
@@ -161,9 +163,9 @@ public class ResourceObjectConverter {
                 .execute(parentResult);
     }
 
-    public AsynchronousOperationReturnValue<ShadowType> addResourceObject(
+    public ResourceObjectAddReturnValue addResourceObject(
             ProvisioningContext ctx,
-            ShadowType shadow,
+            ResourceObjectShadow shadowToAdd,
             OperationProvisioningScriptsType scripts,
             ConnectorOperationOptions connOptions,
             boolean skipExplicitUniquenessCheck,
@@ -173,7 +175,7 @@ public class ResourceObjectConverter {
 
         OperationResult result = parentResult.createSubresult(OPERATION_ADD_RESOURCE_OBJECT);
         try {
-            return ResourceObjectAddOperation.execute(ctx, shadow, scripts, connOptions, skipExplicitUniquenessCheck, result);
+            return ResourceObjectAddOperation.execute(ctx, shadowToAdd, scripts, connOptions, skipExplicitUniquenessCheck, result);
         } catch (Throwable t) {
             result.recordException("Could not create object on the resource: " + t.getMessage(), t);
             throw t;
@@ -190,9 +192,9 @@ public class ResourceObjectConverter {
      *
      * TODO consider making this obligatory for all cases.
      */
-    public AsynchronousOperationResult deleteResourceObject(
+    public ResourceObjectDeleteReturnValue deleteResourceObject(
             ProvisioningContext ctx,
-            ShadowType shadow,
+            RepoShadow shadow,
             OperationProvisioningScriptsType scripts,
             ConnectorOperationOptions connOptions,
             OperationResult parentResult)
@@ -225,12 +227,13 @@ public class ResourceObjectConverter {
     }
 
     /**
-     * Returns known executed deltas as reported by {@link ConnectorInstance#modifyObject(ResourceObjectIdentification.WithPrimary,
-     * PrismObject, Collection, ConnectorOperationOptions, UcfExecutionContext, OperationResult)}.
+     * Returns known executed deltas as reported by {@link ConnectorInstance#modifyObject(
+     * ResourceObjectIdentification.WithPrimary, PrismObject, Collection, ConnectorOperationOptions,
+     * SchemaAwareUcfExecutionContext, OperationResult)}.
      */
-    public AsynchronousOperationReturnValue<Collection<PropertyDelta<PrismPropertyValue<?>>>> modifyResourceObject(
+    public ResourceObjectModifyReturnValue modifyResourceObject(
             @NotNull ProvisioningContext ctx,
-            @NotNull ShadowType repoShadow,
+            @NotNull RepoShadow repoShadow,
             OperationProvisioningScriptsType scripts,
             ConnectorOperationOptions connOptions,
             Collection<? extends ItemDelta<?, ?>> itemDeltas,
@@ -240,7 +243,7 @@ public class ResourceObjectConverter {
             SecurityViolationException, PolicyViolationException, ObjectAlreadyExistsException, ExpressionEvaluationException {
 
         OperationResult result = parentResult.subresult(OPERATION_MODIFY_RESOURCE_OBJECT)
-                .addParam("repoShadow", repoShadow)
+                .addParam("repoShadow", repoShadow.getBean())
                 .addArbitraryObjectAsParam("connOptions", connOptions)
                 .addArbitraryObjectCollectionAsParam("itemDeltas", itemDeltas)
                 .addArbitraryObjectAsContext("ctx", ctx)
@@ -291,7 +294,7 @@ public class ResourceObjectConverter {
             SecurityViolationException, GenericFrameworkException, ObjectNotFoundException, ExpressionEvaluationException {
 
         LOGGER.trace("START fetch changes from {}, objectClass: {}", initialToken, ctx.getObjectClassDefinition());
-        AttributesToReturn attrsToReturn;
+        ShadowItemsToReturn attrsToReturn;
         if (ctx.isWildcard()) {
             attrsToReturn = null;
         } else {
@@ -387,7 +390,7 @@ public class ResourceObjectConverter {
     }
 
     public AsynchronousOperationResult refreshOperationStatus(
-            ProvisioningContext ctx, ShadowType shadow, String asyncRef, OperationResult parentResult)
+            ProvisioningContext ctx, RepoShadow shadow, String asyncRef, OperationResult parentResult)
             throws ObjectNotFoundException, SchemaException, CommunicationException, ConfigurationException,
             ExpressionEvaluationException {
 

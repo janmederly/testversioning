@@ -8,6 +8,10 @@ package com.evolveum.midpoint.provisioning.impl.shadows;
 
 import java.util.Collection;
 
+import com.evolveum.midpoint.schema.util.RawRepoShadow;
+
+import com.evolveum.midpoint.provisioning.impl.shadows.manager.ShadowFinder;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +19,6 @@ import org.springframework.stereotype.Component;
 
 import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.prism.crypto.EncryptionException;
-import com.evolveum.midpoint.prism.delta.ItemDelta;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
@@ -23,15 +26,18 @@ import com.evolveum.midpoint.provisioning.api.ItemComparisonResult;
 import com.evolveum.midpoint.provisioning.api.ProvisioningOperationContext;
 import com.evolveum.midpoint.provisioning.api.ProvisioningOperationOptions;
 import com.evolveum.midpoint.provisioning.impl.ProvisioningContext;
+import com.evolveum.midpoint.provisioning.impl.Shadow;
 import com.evolveum.midpoint.provisioning.ucf.api.GenericFrameworkException;
 import com.evolveum.midpoint.schema.*;
-import com.evolveum.midpoint.schema.processor.ResourceAttribute;
+import com.evolveum.midpoint.schema.processor.ShadowSimpleAttribute;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.OperationProvisioningScriptsType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ResourceType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowType;
+
+import static com.evolveum.midpoint.provisioning.impl.shadows.ShadowsUtil.*;
 
 /**
  * Facade for the whole "shadows" package.
@@ -53,6 +59,7 @@ public class ShadowsFacade {
     @Autowired private DefinitionsHelper definitionsHelper;
     @Autowired private ShadowOperationPropagationHelper propagationHelper;
     @Autowired private ShadowCompareHelper compareHelper;
+    @Autowired private ShadowFinder shadowFinder;
 
     /**
      * @param oid OID of the shadow to be fetched
@@ -61,17 +68,19 @@ public class ShadowsFacade {
      * the ones (if any) in the shadow.
      * @param options "read only" option is ignored
      */
-    public @NotNull ShadowType getShadow(
+    public @NotNull Shadow getShadow(
             @NotNull String oid,
-            @Nullable ShadowType repositoryShadow,
-            @Nullable Collection<ResourceAttribute<?>> identifiersOverride,
+            @Nullable RawRepoShadow repositoryShadow,
+            @Nullable Collection<ShadowSimpleAttribute<?>> identifiersOverride,
             @Nullable Collection<SelectorOptions<GetOperationOptions>> options,
             @NotNull ProvisioningOperationContext context,
             @NotNull Task task,
             @NotNull OperationResult result)
             throws ObjectNotFoundException, CommunicationException, SchemaException,
             ConfigurationException, SecurityViolationException, ExpressionEvaluationException, EncryptionException {
-        return ShadowGetOperation.execute(oid, repositoryShadow, identifiersOverride, options, context, task, result);
+        var shadow = ShadowGetOperation.execute(oid, repositoryShadow, identifiersOverride, options, context, task, result);
+        checkReturnedShadowValidity(shadow.getBean());
+        return shadow;
     }
 
     public String addResourceObject(
@@ -87,22 +96,8 @@ public class ShadowsFacade {
         return ShadowAddOperation.executeDirectly(resourceObjectToAdd, scripts, options, context, task, result);
     }
 
-    public String modifyShadow(
-            @NotNull ShadowType repoShadow,
-            @NotNull Collection<? extends ItemDelta<?, ?>> modifications,
-            @Nullable OperationProvisioningScriptsType scripts,
-            @Nullable ProvisioningOperationOptions options,
-            @NotNull ProvisioningOperationContext context,
-            @NotNull Task task,
-            @NotNull OperationResult result)
-            throws CommunicationException, GenericFrameworkException, ObjectNotFoundException, SchemaException,
-            ConfigurationException, SecurityViolationException, PolicyViolationException, ExpressionEvaluationException,
-            EncryptionException, ObjectAlreadyExistsException {
-        return ShadowModifyOperation.executeDirectly(repoShadow, modifications, scripts, options, context, task, result);
-    }
-
     public ShadowType deleteShadow(
-            @NotNull ShadowType repoShadow,
+            @NotNull RawRepoShadow rawRepoShadow,
             ProvisioningOperationOptions options,
             OperationProvisioningScriptsType scripts,
             @NotNull ProvisioningOperationContext context,
@@ -111,18 +106,20 @@ public class ShadowsFacade {
             throws CommunicationException, GenericFrameworkException, ObjectNotFoundException,
             SchemaException, ConfigurationException, SecurityViolationException, PolicyViolationException,
             ExpressionEvaluationException, EncryptionException {
-        return ShadowDeleteOperation.executeDirectly(repoShadow, options, scripts, context, task, result);
+        return ShadowDeleteOperation.executeDirectly(rawRepoShadow, options, scripts, context, task, result);
     }
 
     public void refreshShadow(
-            ShadowType repoShadow,
+            @NotNull String shadowOid,
             ProvisioningOperationOptions options,
             ProvisioningOperationContext context,
             Task task,
             OperationResult result)
             throws ObjectNotFoundException, SchemaException, CommunicationException, ConfigurationException,
             ExpressionEvaluationException, EncryptionException {
-        ShadowRefreshOperation.executeFull(repoShadow, options, context, task, result);
+        // Re-reading the shadow in order to get the really "raw" version.
+        var rawRepoShadow = shadowFinder.getRepoShadow(shadowOid, null, result);
+        ShadowRefreshOperation.executeFull(rawRepoShadow, options, context, task, result);
     }
 
     public void applyDefinition(
@@ -149,7 +146,7 @@ public class ShadowsFacade {
     public SearchResultMetadata searchObjectsIterative(
             ObjectQuery query,
             Collection<SelectorOptions<GetOperationOptions>> options,
-            ResultHandler<ShadowType> handler,
+            @NotNull ResultHandler<ShadowType> handler,
             ProvisioningOperationContext context,
             Task task,
             OperationResult result)
@@ -157,7 +154,9 @@ public class ShadowsFacade {
             ConfigurationException, SecurityViolationException, ExpressionEvaluationException {
         return ShadowSearchLikeOperation
                 .create(query, options, context, task, result)
-                .executeIterativeSearch(handler, result);
+                .executeIterativeSearch(
+                        createCheckingHandler(handler),
+                        result);
     }
 
     public @NotNull SearchResultList<PrismObject<ShadowType>> searchObjects(
@@ -168,16 +167,18 @@ public class ShadowsFacade {
             OperationResult result)
             throws SchemaException, ObjectNotFoundException, CommunicationException,
             ConfigurationException, SecurityViolationException, ExpressionEvaluationException {
-        return ShadowSearchLikeOperation
+        var shadows = ShadowSearchLikeOperation
                 .create(query, options, context, task, result)
                 .executeNonIterativeSearch(result);
+        checkReturnedShadowsValidity(shadows);
+        return shadows;
     }
 
     public SearchResultMetadata searchObjectsIterative(
             ProvisioningContext ctx,
             ObjectQuery query,
             Collection<SelectorOptions<GetOperationOptions>> options,
-            ResultHandler<ShadowType> handler,
+            @NotNull ResultHandler<ShadowType> handler,
             OperationResult result)
             throws SchemaException, ObjectNotFoundException, CommunicationException,
             ConfigurationException, SecurityViolationException, ExpressionEvaluationException {
@@ -199,14 +200,15 @@ public class ShadowsFacade {
                 .executeCount(result);
     }
 
+    /** We assume that the `repoShadow` was retrieved right from the repository. */
     public void propagateOperations(
             @NotNull ResourceType resource,
-            @NotNull ShadowType shadow,
+            @NotNull ShadowType repoShadow,
             @NotNull Task task,
             @NotNull OperationResult result) throws ObjectNotFoundException, SchemaException, CommunicationException,
             ConfigurationException, ExpressionEvaluationException, GenericFrameworkException, ObjectAlreadyExistsException,
             SecurityViolationException, PolicyViolationException, EncryptionException {
-        propagationHelper.propagateOperations(resource, shadow, task, result);
+        propagationHelper.propagateOperations(resource, RawRepoShadow.of(repoShadow), task, result);
     }
 
     public <T> ItemComparisonResult compare(

@@ -15,27 +15,51 @@ public class CompleteResourceSchemaImpl extends ResourceSchemaImpl implements Co
 
     @NotNull private final BasicResourceInformation basicResourceInformation;
 
-    CompleteResourceSchemaImpl(@NotNull BasicResourceInformation basicResourceInformation) {
+    /** TODO */
+    private final boolean caseIgnoreAttributeNames;
+
+    CompleteResourceSchemaImpl(
+            @NotNull NativeResourceSchema nativeSchema,
+            @NotNull BasicResourceInformation basicResourceInformation,
+            boolean caseIgnoreAttributeNames) {
+        super(nativeSchema);
         this.basicResourceInformation = basicResourceInformation;
+        this.caseIgnoreAttributeNames = caseIgnoreAttributeNames;
     }
 
-    private CompleteResourceSchemaImpl(@NotNull LayerType layer, @NotNull BasicResourceInformation basicResourceInformation) {
-        super(layer);
+    private CompleteResourceSchemaImpl(
+            @NotNull NativeResourceSchema nativeSchema,
+            @NotNull LayerType layer,
+            @NotNull BasicResourceInformation basicResourceInformation,
+            boolean caseIgnoreAttributeNames) {
+        super(nativeSchema, layer);
         this.basicResourceInformation = basicResourceInformation;
+        this.caseIgnoreAttributeNames = caseIgnoreAttributeNames;
     }
 
     @Override
-    public @NotNull BasicResourceInformation getBasicResourceInformation() {
-        return basicResourceInformation;
+    public boolean isCaseIgnoreAttributeNames() {
+        return caseIgnoreAttributeNames;
     }
 
     @Override
     @NotNull CompleteResourceSchemaImpl createEmptyClone(@NotNull LayerType layer) {
-        return new CompleteResourceSchemaImpl(layer, basicResourceInformation);
+        return new CompleteResourceSchemaImpl(nativeSchema, layer, basicResourceInformation, caseIgnoreAttributeNames);
+    }
+
+    @Override
+    public CompleteResourceSchema forLayerImmutable(@NotNull LayerType layer) {
+        return (CompleteResourceSchema) super.forLayerImmutable(layer);
     }
 
     @Override
     public String toString() {
-        return super.toString() + " @" + basicResourceInformation;
+        var sb = new StringBuilder();
+        sb.append(super.toString());
+        sb.append(" @").append(basicResourceInformation);
+        if (caseIgnoreAttributeNames) {
+            sb.append(" (case-ignore attribute names)");
+        }
+        return sb.toString();
     }
 }

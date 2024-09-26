@@ -21,6 +21,7 @@ import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.repeater.RepeatingView;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
+import org.apache.wicket.model.Model;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.evolveum.midpoint.gui.api.model.LoadableModel;
@@ -38,7 +39,6 @@ import com.evolveum.midpoint.gui.impl.page.admin.AbstractPageObjectDetails;
 import com.evolveum.midpoint.gui.impl.page.admin.DetailsFragment;
 import com.evolveum.midpoint.gui.impl.page.admin.TemplateChoicePanel;
 import com.evolveum.midpoint.gui.impl.page.admin.component.AssignmentHolderOperationalButtonsPanel;
-import com.evolveum.midpoint.gui.impl.page.admin.role.mining.model.BusinessRoleDto;
 import com.evolveum.midpoint.gui.impl.util.DetailsPageUtil;
 import com.evolveum.midpoint.gui.impl.util.ObjectCollectionViewUtil;
 import com.evolveum.midpoint.model.api.authentication.CompiledObjectCollectionView;
@@ -55,7 +55,7 @@ import com.evolveum.midpoint.util.logging.TraceManager;
 import com.evolveum.midpoint.web.component.breadcrumbs.Breadcrumb;
 import com.evolveum.midpoint.web.component.dialog.ConfirmationPanel;
 import com.evolveum.midpoint.web.component.util.SerializableConsumer;
-import com.evolveum.midpoint.web.model.ContainerValueWrapperFromObjectWrapperModel;
+import com.evolveum.midpoint.web.model.PrismContainerValueWrapperModel;
 import com.evolveum.midpoint.web.util.OnePageParameterEncoder;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.AssignmentHolderType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.DisplayType;
@@ -72,49 +72,89 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
     private static final String ID_WIZARD = "wizard";
 
     private List<Breadcrumb> wizardBreadcrumbs = new ArrayList<>();
+    private final boolean showTemplate;
 
     public PageAssignmentHolderDetails() {
-        super();
-    }
-
-    public PageAssignmentHolderDetails(PrismObject<AH> assignmentHolder, List<BusinessRoleDto> patternDeltas) {
-        super(assignmentHolder, patternDeltas);
+        this(null, null);
     }
 
     public PageAssignmentHolderDetails(PageParameters pageParameters) {
-        super(pageParameters);
+        this(pageParameters, null);
     }
 
     public PageAssignmentHolderDetails(PrismObject<AH> assignmentHolder) {
-        super(assignmentHolder);
+        this(null, assignmentHolder);
+    }
+
+    private PageAssignmentHolderDetails(PageParameters pageParameters, PrismObject<AH> assignmentHolder) {
+        super(pageParameters, assignmentHolder);
+        showTemplate = assignmentHolder == null;
     }
 
     @Override
     protected void initLayout() {
-        if (isAdd() && isApplicableTemplate()) {
-            Fragment templateFragment = createTemplateFragment();
-            add(templateFragment);
-        } else {
-            if (isAdd()) {
-                Collection<CompiledObjectCollectionView> allApplicableArchetypeViews = findAllApplicableArchetypeViews();
-                if (allApplicableArchetypeViews.size() == 1) {
-                    CompiledObjectCollectionView view = allApplicableArchetypeViews.iterator().next();
-                    if (!view.isDefaultView()) {
-                        applyTemplate(allApplicableArchetypeViews.iterator().next());
+        if (isApplicableTemplate()) {
+            if (isAdd() && existMoreApplicableTemplate()) {
+                Fragment templateFragment = createTemplateFragment();
+                add(templateFragment);
+                return;
+            } else {
+                if (isAdd()) {
+                    Collection<CompiledObjectCollectionView> allApplicableArchetypeViews = findAllApplicableArchetypeViews();
+                    if (allApplicableArchetypeViews.size() == 1) {
+                        CompiledObjectCollectionView view = allApplicableArchetypeViews.iterator().next();
+                        if (!view.isDefaultView()) {
+                            applyTemplate(allApplicableArchetypeViews.iterator().next());
+                        }
                     }
                 }
             }
-            super.initLayout();
         }
+        super.initLayout();
+    }
+
+
+    protected DetailsFragment createDetailsFragment() {
+        if (canShowWizard()) {
+            setShowedByWizard(true);
+            return createWizardFragment();
+        }
+
+        return super.createDetailsFragment();
+    }
+
+    /**
+     * Return DetailsFragment that contains wizard.
+     */
+    protected DetailsFragment createWizardFragment() {
+        return super.createDetailsFragment();
+    }
+
+    /**
+     * Define whether wizard will be showed, for current object.
+     */
+    protected boolean canShowWizard() {
+        return false;
     }
 
     protected Fragment createTemplateFragment() {
         return new TemplateFragment(ID_DETAILS_VIEW, ID_TEMPLATE_VIEW, PageAssignmentHolderDetails.this);
     }
 
-    protected boolean isApplicableTemplate() {
+    private boolean existMoreApplicableTemplate() {
         Collection<CompiledObjectCollectionView> applicableArchetypes = findAllApplicableArchetypeViews();
         return applicableArchetypes.size() > 1;
+    }
+
+    private boolean isShowTemplateChoices() {
+        return showTemplate;
+    }
+
+    /**
+     * Method for if page support selecting of template (archetype) for type which page works.
+     */
+    protected boolean isApplicableTemplate() {
+        return isShowTemplateChoices();
     }
 
     private class TemplateFragment extends Fragment {
@@ -163,12 +203,15 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
     }
 
     private void applyTemplate(CompiledObjectCollectionView collectionViews) {
-        PrismObject<AH> assignmentHolder;
-        try {
-            assignmentHolder = getPrismContext().createObject(PageAssignmentHolderDetails.this.getType());
-        } catch (Throwable e) {
-            LOGGER.error("Cannot create prism object for {}. Using object from page model.", PageAssignmentHolderDetails.this.getType());
-            assignmentHolder = getObjectDetailsModels().getObjectWrapperModel().getObject().getObjectOld().clone();
+        PrismObject<AH> assignmentHolder = getObjectDetailsModels().getObjectWrapper().getObjectOld();
+//        PrismObject<AH> assignmentHolder;
+        if (assignmentHolder == null) {
+            try {
+                assignmentHolder = getPrismContext().createObject(PageAssignmentHolderDetails.this.getType());
+            } catch (Throwable e) {
+                LOGGER.error("Cannot create prism object for {}. Using object from page model.", PageAssignmentHolderDetails.this.getType());
+                assignmentHolder = getObjectDetailsModels().getObjectWrapperModel().getObject().getObjectOld().clone();
+            }
         }
         List<ObjectReferenceType> archetypeRef = PageAssignmentHolderDetails.this.getArchetypeReferencesList(collectionViews);
         if (archetypeRef != null) {
@@ -198,7 +241,7 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
             }
 
             @Override
-            protected void savePerformed(AjaxRequestTarget target) {
+            protected void submitPerformed(AjaxRequestTarget target) {
                 PageAssignmentHolderDetails.this.savePerformed(target);
             }
 
@@ -227,9 +270,6 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
     }
 
     protected void afterDeletePerformed(AjaxRequestTarget target) {
-    }
-
-    protected void onBackPerform(AjaxRequestTarget target) {
     }
 
     protected void addAdditionalButtons(RepeatingView repeatingView) {
@@ -294,10 +334,39 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
         return wizardBreadcrumbs;
     }
 
+    public boolean isShowByWizard() {
+        return isShowedByWizard();
+    }
+
     protected <C extends Containerable, P extends AbstractWizardPanel<C, AHDM>> P showWizard(
             AjaxRequestTarget target,
             ItemPath pathToValue,
             Class<P> clazz) {
+        return showWizard(null, target, pathToValue, clazz);
+    }
+
+    protected <C extends Containerable, P extends AbstractWizardPanel<C, AHDM>> P showWizard(
+            AjaxRequestTarget target,
+            ItemPath pathToValue,
+            Class<P> clazz,
+            IModel<String> exitLabel) {
+        return showWizard(null, target, pathToValue, clazz, exitLabel);
+    }
+
+    protected <C extends Containerable, P extends AbstractWizardPanel<C, AHDM>> P showWizard(
+            PrismContainerValue<C> newValue,
+            AjaxRequestTarget target,
+            ItemPath pathToValue,
+            Class<P> clazz) {
+        return showWizard(newValue, target, pathToValue, clazz, null);
+    }
+
+    protected <C extends Containerable, P extends AbstractWizardPanel<C, AHDM>> P showWizard(
+            PrismContainerValue<C> newValue,
+            AjaxRequestTarget target,
+            ItemPath pathToValue,
+            Class<P> clazz,
+            IModel<String> exitLabel) {
 
         setShowedByWizard(true);
         getObjectDetailsModels().saveDeltas();
@@ -305,7 +374,27 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
 
         IModel<PrismContainerValueWrapper<C>> valueModel = null;
 
-        if (pathToValue != null) {
+        if (newValue != null) {
+            valueModel = new LoadableModel<>(false) {
+                @Override
+                protected PrismContainerValueWrapper<C> load() {
+                    try {
+                        PrismContainerWrapper<C> container =
+                                getObjectDetailsModels().getObjectWrapper().findContainer(pathToValue);
+                        PrismContainerValueWrapper<C> newWrapper = WebPrismUtil.createNewValueWrapper(
+                                container,
+                                newValue,
+                                PageAssignmentHolderDetails.this,
+                                getObjectDetailsModels().createWrapperContext());
+                        container.getValues().add(newWrapper);
+                        return newWrapper;
+                    } catch (SchemaException e) {
+                        LOGGER.error("Couldn't resolve value for path: " + pathToValue);
+                    }
+                    return null;
+                }
+            };
+        } else if (pathToValue != null) {
             valueModel = new LoadableModel<>(false) {
                 @Override
                 protected PrismContainerValueWrapper<C> load() {
@@ -340,7 +429,37 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
 
         try {
             Constructor<P> constructor = clazz.getConstructor(String.class, WizardPanelHelper.class);
-            P wizard = constructor.newInstance(ID_WIZARD, createContainerWizardHelper(valueModel));
+
+            WizardPanelHelper<C, AHDM> helper = createContainerWizardHelper(valueModel);
+            helper.setExitLabel(exitLabel);
+
+            P wizard = constructor.newInstance(ID_WIZARD, helper);
+            wizard.setOutputMarkupId(true);
+            fragment.add(wizard);
+            target.add(fragment);
+            return wizard;
+        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+            LOGGER.error("Couldn't create panel by constructor for class " + clazz.getSimpleName()
+                    + " with parameters type: String, WizardPanelHelper", e);
+        }
+        return null;
+    }
+
+    protected <C extends Containerable, P extends AbstractWizardPanel<C, AHDM>> P showWizardWithoutSave(
+            IModel<PrismContainerValueWrapper<C>> valueModel,
+            AjaxRequestTarget target,
+            Class<P> clazz) {
+
+        setShowedByWizard(true);
+
+        getFeedbackPanel().setVisible(false);
+        Fragment fragment = new Fragment(ID_DETAILS_VIEW, ID_WIZARD_FRAGMENT, PageAssignmentHolderDetails.this);
+        fragment.setOutputMarkupId(true);
+        addOrReplace(fragment);
+
+        try {
+            Constructor<P> constructor = clazz.getConstructor(String.class, WizardPanelHelper.class);
+            P wizard = constructor.newInstance(ID_WIZARD, createContainerWizardHelperWithoutSave(valueModel));
             wizard.setOutputMarkupId(true);
             fragment.add(wizard);
             target.add(fragment);
@@ -393,6 +512,25 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
         };
     }
 
+    private <C extends Containerable> WizardPanelHelper<C, AHDM> createContainerWizardHelperWithoutSave(
+            IModel<PrismContainerValueWrapper<C>> valueModel) {
+        return new WizardPanelHelper<>(getObjectDetailsModels(), valueModel) {
+
+            @Override
+            public void onExitPerformed(AjaxRequestTarget target) {
+                setShowedByWizard(false);
+                backToDetailsFromWizard(target);
+                getWizardBreadcrumbs().clear();
+                WebComponentUtil.showToastForRecordedButUnsavedChanges(target, valueModel.getObject());
+            }
+
+            @Override
+            public OperationResult onSaveObjectPerformed(AjaxRequestTarget target) {
+                return new OperationResult(OPERATION_SAVE);
+            }
+        };
+    }
+
     protected WizardPanelHelper<AH, AHDM> createObjectWizardPanelHelper() {
         return new WizardPanelHelper<>(getObjectDetailsModels()) {
 
@@ -404,8 +542,8 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
             }
 
             @Override
-            public IModel<PrismContainerValueWrapper<AH>> getValueModel() {
-                return new ContainerValueWrapperFromObjectWrapperModel<>(
+            public IModel<PrismContainerValueWrapper<AH>> getDefaultValueModel() {
+                return PrismContainerValueWrapperModel.fromContainerWrapper(
                         getDetailsModel().getObjectWrapperModel(), ItemPath.EMPTY_PATH);
             }
 
@@ -432,7 +570,7 @@ public abstract class PageAssignmentHolderDetails<AH extends AssignmentHolderTyp
 
     protected void checkDeltasExitPerformed(SerializableConsumer<AjaxRequestTarget> consumer, AjaxRequestTarget target) {
 
-        if (!hasUnsavedChanges(target)) {
+        if (!hasUnsavedChangesInWizard(target)) {
             consumer.accept(target);
             return;
         }

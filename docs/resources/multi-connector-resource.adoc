@@ -1,3 +1,7 @@
+---
+midpoint-feature: multi-connector-resource
+doc-type: intro
+---
 = Multi-Connector Resource
 :page-wiki-name: Multi-Connector Resource
 :page-wiki-id: 24085904
@@ -5,9 +9,6 @@
 :page-wiki-metadata-create-date: 2017-04-24T13:27:26.944+02:00
 :page-wiki-metadata-modify-user: vera
 :page-wiki-metadata-modify-date: 2018-01-29T16:16:03.321+01:00
-:page-since: "3.6"
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: green
 
 

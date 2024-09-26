@@ -6,16 +6,16 @@
  */
 package com.evolveum.midpoint.gui.api.component.result;
 
-import java.io.PrintWriter;
-import java.io.Serializable;
-import java.io.StringWriter;
-import java.io.Writer;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import com.evolveum.midpoint.gui.api.model.LoadableModel;
 import com.evolveum.midpoint.prism.PrismContext;
+
+import com.evolveum.midpoint.xml.ns._public.common.common_3.ObjectType;
 
 import org.apache.commons.lang3.Validate;
 import org.apache.commons.text.StringEscapeUtils;
@@ -49,6 +49,7 @@ public class OpResult implements Serializable, Visitable {
 
     private static final String OPERATION_CHECK_TASK_VISIBILITY = OpResult.class.getName() + ".checkTaskVisibility";
     private static final String OPERATION_CHECK_CASE_VISIBILITY = OpResult.class.getName() + ".checkCaseVisibility";
+    private static final String OPERATION_CHECK_PROCESSED_OBJECT_VISIBILITY = OpResult.class.getName() + ".checkProcessedObjectVisibility";
 
     private OperationResultStatus status;
     private String operation;
@@ -69,6 +70,10 @@ public class OpResult implements Serializable, Visitable {
 
     private String caseOid;
     private Boolean caseVisible;
+
+    private String processedObjectOid;
+    private Class<? extends ObjectType> processedObjectType;
+    private Boolean processedObjectVisible;
 
     private boolean showMore;
     private boolean showError;
@@ -156,20 +161,26 @@ public class OpResult implements Serializable, Visitable {
         return opResult;
     }
 
-    private static IModel<String> createXmlModel(OperationResult result, PageAdminLTE page) {
-        try {
-            OperationResultType resultType = result.createOperationResultType();
-            return () -> {
+    private static LoadableModel<String> createXmlModel(OperationResult result, PageAdminLTE page) {
+        return new LoadableModel<>() {
+
+            @Serial private static final long serialVersionUID = 1L;
+
+            @Override
+            protected String load() {
                 try {
-                    return PrismContext.get().xmlSerializer().serializeAnyData(resultType, SchemaConstants.C_RESULT);
-                } catch (SchemaException e) {
-                    throw new TunnelException(e);
+                    OperationResultType resultType = result.createOperationResultType();
+                    try {
+                        return PrismContext.get().xmlSerializer().serializeAnyData(resultType, SchemaConstants.C_RESULT);
+                    } catch (SchemaException e) {
+                        throw new TunnelException(e);
+                    }
+                } catch (RuntimeException ex) {
+                    String m = "Can't create xml: " + ex;
+                    return "<?xml version='1.0'?><message>" + StringEscapeUtils.escapeXml10(m) + "</message>";
                 }
-            };
-        } catch (RuntimeException ex) {
-            String m = "Can't create xml: " + ex;
-            return Model.of("<?xml version='1.0'?><message>" + StringEscapeUtils.escapeXml10(m) + "</message>");
-        }
+            }
+        };
     }
 
     // This method should be called along with getOpResult for root operationResult. However, it might take some time,
@@ -238,6 +249,38 @@ public class OpResult implements Serializable, Visitable {
                 ConfigurationException | ExpressionEvaluationException e) {
             LOGGER.debug("Case {} is not visible by the current user: {}: {}", caseOid, e.getClass(), e.getMessage());
             caseVisible = false;
+        }
+    }
+
+    public void determineProcessedObjectVisible(PageAdminLTE pageBase) {
+        if (getStatus().equals(OperationResultStatus.FATAL_ERROR)) {
+            processedObjectVisible = false;
+            return;
+        }
+        if (processedObjectOid == null || processedObjectType == null) {
+            processedObjectVisible = false;
+            return;
+        }
+        try {
+            if (pageBase.isAuthorized(AuthorizationConstants.AUTZ_ALL_URL)) {
+                processedObjectVisible = true;
+                return;
+            }
+        } catch (SchemaException | ExpressionEvaluationException | ObjectNotFoundException | CommunicationException |
+                ConfigurationException | SecurityViolationException e) {
+            processedObjectVisible = false;
+            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't determine processed object visible", e);
+            return;
+        }
+
+        Task task = pageBase.createSimpleTask(OPERATION_CHECK_PROCESSED_OBJECT_VISIBILITY);
+        try {
+            pageBase.getModelService().getObject(ObjectType.class, processedObjectOid, null, task, task.getResult());
+            processedObjectVisible = true;
+        } catch (ObjectNotFoundException | SchemaException | SecurityViolationException | CommunicationException |
+                ConfigurationException | ExpressionEvaluationException e) {
+            LOGGER.debug("Processed object {} is not visible by the current user: {}: {}", processedObjectOid, e.getClass(), e.getMessage());
+            processedObjectVisible = false;
         }
     }
 
@@ -338,6 +381,24 @@ public class OpResult implements Serializable, Visitable {
         return true; // at least as for now
     }
 
+    public String getProcessedObjectOid() {
+        return processedObjectOid;
+    }
+
+    public Class<? extends ObjectType> getProcessedObjectType() {
+        return processedObjectType;
+    }
+
+    public boolean isProcessedObjectVisible() {
+        if (processedObjectVisible != null) {
+            return processedObjectVisible;
+        }
+        if (parent != null) {
+            return parent.isProcessedObjectVisible();
+        }
+        return false;
+    }
+
     @Override
     public void accept(Visitor visitor) {
         visitor.visit(this);
@@ -359,6 +420,14 @@ public class OpResult implements Serializable, Visitable {
         };
 
         accept(visitor);
+    }
+
+    public void setProcessedObjectOid(String processedObjectOid) {
+        this.processedObjectOid = processedObjectOid;
+    }
+
+    public void setProcessedObjectType(Class<? extends ObjectType> processedObjectType) {
+        this.processedObjectType = processedObjectType;
     }
 
     /** Options for showing {@link OpResult} objects. */

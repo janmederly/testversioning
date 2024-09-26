@@ -12,6 +12,8 @@ import static com.evolveum.midpoint.common.mining.utils.ExtractPatternUtils.prep
 import java.io.Serializable;
 import java.util.*;
 
+import com.evolveum.midpoint.common.mining.utils.values.FrequencyItem;
+
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningBaseTypeChunk;
@@ -78,7 +80,8 @@ public class PatternResolver implements DetectionOperation, Serializable {
         innerPatternPreparation(handler,
                 outerIntersections,
                 preparedObjects,
-                userBasedDetection, minOccupancy,
+                userBasedDetection,
+                minOccupancy,
                 intersections
         );
 
@@ -126,7 +129,9 @@ public class PatternResolver implements DetectionOperation, Serializable {
         for (T chunk : miningBaseTypeChunks) {
             handler.iterateActualStatus();
 
-            double frequency = chunk.getFrequency();
+            FrequencyItem frequencyItem = chunk.getFrequencyItem();
+            double frequency = frequencyItem.getFrequency();
+
             if (frequency < minFrequency || frequency > maxFrequency) {
                 continue;
             }
@@ -165,7 +170,8 @@ public class PatternResolver implements DetectionOperation, Serializable {
             @NotNull Set<List<String>> innerIntersections,
             @NotNull List<List<String>> outerIntersectionsList,
             @NotNull List<T> preparedObjects,
-            @NotNull List<DetectedPattern> intersections, int minOccupancy,
+            @NotNull List<DetectedPattern> intersections,
+            int minOccupancy,
             boolean userBasedDetection) {
         handler.enterNewStep("Outer Pattern Preparation");
         handler.setOperationCountToProcess(innerIntersections.size());

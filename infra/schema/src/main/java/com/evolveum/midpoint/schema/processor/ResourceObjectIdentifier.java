@@ -8,23 +8,26 @@
 package com.evolveum.midpoint.schema.processor;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+
+import com.evolveum.midpoint.prism.query.ObjectFilter;
+import com.evolveum.midpoint.util.exception.SystemException;
 
 import com.google.common.base.Preconditions;
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.prism.PrismProperty;
 import com.evolveum.midpoint.prism.PrismPropertyValue;
-import com.evolveum.midpoint.prism.match.MatchingRule;
 import com.evolveum.midpoint.prism.path.ItemName;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.ShortDumpable;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowType;
+
+import javax.xml.namespace.QName;
 
 /**
  * Specialized class that wraps a single-valued non-null primary or secondary identifier attribute.
@@ -35,21 +38,36 @@ import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowType;
 public abstract class ResourceObjectIdentifier<T> implements Serializable, ShortDumpable {
 
     /** The identifier attribute. It must have a definition and exactly one value. Immutable. */
-    @NotNull final ResourceAttribute<T> attribute;
+    @NotNull final ShadowSimpleAttribute<T> attribute;
 
-    private ResourceObjectIdentifier(@NotNull ResourceAttribute<T> attribute) {
+    private ResourceObjectIdentifier(@NotNull ShadowSimpleAttribute<T> attribute) {
         Preconditions.checkArgument(
                 attribute.getRealValue() != null,
                 "Expected exactly one non-null value in %s", attribute);
         Preconditions.checkArgument(
                 attribute.getDefinition() != null,
                 "Expected the definition for attribute %s", attribute);
-        ResourceAttribute<T> clone = attribute.clone();
+        ShadowSimpleAttribute<T> clone = attribute.clone();
         clone.freeze();
         this.attribute = clone;
     }
 
-    public @NotNull ResourceAttribute<T> getAttribute() {
+    public static @NotNull ResourceObjectIdentifier.Primary<?> primaryFromIdentifiers(
+            @NotNull ResourceObjectDefinition objectDefinition,
+            @NotNull Collection<ShadowSimpleAttribute<?>> identifiers,
+            Object errorCtx)
+            throws SchemaException {
+        var primaryIdentifierAttributes = identifiers.stream()
+                .filter(attr -> objectDefinition.isPrimaryIdentifier(attr.getElementName()))
+                .toList();
+        ShadowSimpleAttribute<?> primaryIdentifierAttribute = MiscUtil.extractSingletonRequired(
+                primaryIdentifierAttributes,
+                () -> new SchemaException("Multiple primary identifiers among " + identifiers + " in " + errorCtx),
+                () -> new SchemaException("No primary identifier in " + errorCtx));
+        return ResourceObjectIdentifier.Primary.of(primaryIdentifierAttribute);
+    }
+
+    public @NotNull ShadowSimpleAttribute<T> getAttribute() {
         return attribute;
     }
 
@@ -79,11 +97,11 @@ public abstract class ResourceObjectIdentifier<T> implements Serializable, Short
                 attribute.getElementName());
     }
 
-    private static <T> @NotNull ResourceAttribute<T> toSingleValuedResourceAttribute(
+    private static <T> @NotNull ShadowSimpleAttribute<T> toSingleValuedResourceAttribute(
             @NotNull ResourceObjectDefinition objDef, @NotNull PrismProperty<T> item) throws SchemaException {
         //noinspection unchecked
-        var primaryIdentifier = ((ResourceAttributeDefinition<T>) objDef
-                .findAttributeDefinitionRequired(item.getElementName()))
+        var primaryIdentifier = ((ShadowSimpleAttributeDefinition<T>) objDef
+                .findSimpleAttributeDefinitionRequired(item.getElementName()))
                 .instantiate();
         primaryIdentifier.setRealValue(
                 MiscUtil.requireNonNull(
@@ -100,23 +118,9 @@ public abstract class ResourceObjectIdentifier<T> implements Serializable, Short
         return ItemPath.create(ShadowType.F_ATTRIBUTES, getName());
     }
 
-    public @NotNull ResourceAttributeDefinition<T> getDefinition() {
+    public @NotNull ShadowSimpleAttributeDefinition<T> getDefinition() {
         return Objects.requireNonNull(
                 attribute.getDefinition());
-    }
-
-    public List<PrismPropertyValue<T>> getNormalizedValues()
-            throws SchemaException {
-        MatchingRule<T> matchingRule = getDefinition().getMatchingRule();
-        List<PrismPropertyValue<T>> normalizedAttributeValues = new ArrayList<>();
-        for (PrismPropertyValue<T> origAttributeValue : attribute.getValues()) {
-            PrismPropertyValue<T> normalizedAttributeValue = origAttributeValue.clone();
-            normalizedAttributeValue.setValue(
-                    matchingRule.normalize(
-                            origAttributeValue.getValue()));
-            normalizedAttributeValues.add(normalizedAttributeValue);
-        }
-        return normalizedAttributeValues;
     }
 
     @Override
@@ -124,14 +128,47 @@ public abstract class ResourceObjectIdentifier<T> implements Serializable, Short
         sb.append(this);
     }
 
+    public @NotNull Object getOrigValue() {
+        return MiscUtil.extractSingletonRequired(attribute.getOrigValues());
+    }
+
+    /**
+     * This may be quite courageous. But (especially) ConnId requires String values of identifiers. So, this is the place
+     * to change the way non-String values are to be handled.
+     */
+    public @NotNull String getStringOrigValue() {
+        return getOrigValue().toString();
+    }
+
+    public @NotNull Object getNormValue() {
+        try {
+            return MiscUtil.extractSingletonRequired(attribute.getNormValues());
+        } catch (SchemaException e) {
+            throw new SystemException(e); // Should have been checked earlier
+        }
+    }
+
+    public QName getMatchingRuleName() {
+        return attribute.getDefinitionRequired().getMatchingRuleQName();
+    }
+
+    /** See {@link ShadowSimpleAttribute#normalizationAwareEqFilter()}. */
+    public @NotNull ObjectFilter normalizationAwareEqFilter() throws SchemaException {
+        return attribute.normalizationAwareEqFilter();
+    }
+
+    public @NotNull ObjectFilter plainEqFilter() {
+        return attribute.plainEqFilter();
+    }
+
     /** Identifier that is a primary one. */
     public static class Primary<T> extends ResourceObjectIdentifier<T> {
 
-        private Primary(@NotNull ResourceAttribute<T> attribute) {
+        private Primary(@NotNull ShadowSimpleAttribute<T> attribute) {
             super(attribute);
         }
 
-        public static <T> @NotNull Primary<T> of(@NotNull ResourceAttribute<T> attribute) {
+        public static <T> @NotNull Primary<T> of(@NotNull ShadowSimpleAttribute<T> attribute) {
             return new Primary<>(attribute);
         }
 
@@ -154,15 +191,15 @@ public abstract class ResourceObjectIdentifier<T> implements Serializable, Short
 
     public static class Secondary<T> extends ResourceObjectIdentifier<T> {
 
-        public Secondary(@NotNull ResourceAttribute<T> attribute) {
+        public Secondary(@NotNull ShadowSimpleAttribute<T> attribute) {
             super(attribute);
         }
 
-        public static <T> @NotNull Secondary<T> of(@NotNull ResourceAttribute<T> attribute) {
+        public static <T> @NotNull Secondary<T> of(@NotNull ShadowSimpleAttribute<T> attribute) {
             return new Secondary<>(attribute);
         }
 
-        public static @NotNull List<? extends Secondary<?>> of (@NotNull Collection<? extends ResourceAttribute<?>> attributes) {
+        public static @NotNull List<? extends Secondary<?>> of (@NotNull Collection<? extends ShadowSimpleAttribute<?>> attributes) {
             return attributes.stream()
                     .map(attr -> Secondary.of(attr))
                     .toList();

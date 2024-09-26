@@ -103,6 +103,13 @@ At the GUI level, there are the following action URIs available.
 | <prefix>#certificationDecisions
 |
 
+| My active campaigns
+| <prefix>#myActiveCertificationCampaigns
+|
+
+| All active campaigns
+| <prefix>#activeCertificationCampaigns
+|
 
 | All certification-related pages
 | <prefix>#certificationAll
@@ -166,9 +173,7 @@ The last privilege could be added by adding action URI #closeCertificationCampai
       <object>
          <type>AccessCertificationDefinitionType</type>
          <filter>
-            <q:inOid>
-               <q:value>092c35f1-5bcd-477e-a95e-912f73314b02</q:value>		<!-- OID of the definition of XYZ campaigns -->
-            </q:inOid>
+            <q:text>. inOid "092c35f1-5bcd-477e-a95e-912f73314b02"</q:text>     <!-- OID of the definition of XYZ campaigns -->
          </filter>
       </object>
    </authorization>
@@ -180,12 +185,7 @@ The last privilege could be added by adding action URI #closeCertificationCampai
       <object>
          <type>AccessCertificationCampaignType</type>
          <filter>
-            <q:ref>
-               <q:path>definitionRef</q:path>
-               <q:value>
-                  <oid>092c35f1-5bcd-477e-a95e-912f73314b02</oid>
-               </q:value>
-            </q:ref>
+            <q:text>definitionRef matches (oid = "092c35f1-5bcd-477e-a95e-912f73314b02")</q:text>
          </filter>
       </object>
    </authorization>
@@ -199,4 +199,4 @@ The last privilege could be added by adding action URI #closeCertificationCampai
 ----
 
 Alternatively, we might want to specify the second authorization in a way of "all campaigns whose owner is currently logged-in user".
-But the implementation of owner = self is not quite finished yet (see link:https://jira.evolveum.com/browse/MID-2789[MID-2789]).
+But the implementation of owner = self is not quite finished yet (see bug:MID-2789[]).

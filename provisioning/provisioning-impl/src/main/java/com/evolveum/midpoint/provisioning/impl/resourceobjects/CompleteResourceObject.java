@@ -20,9 +20,7 @@ import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.FetchErrorReportingMethodType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowType;
 
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.Serializable;
 
@@ -33,14 +31,17 @@ import java.io.Serializable;
  * (Except for {@link ResourceObjectConverter#searchResourceObjects(ProvisioningContext, ResourceObjectHandler, ObjectQuery,
  * boolean, FetchErrorReportingMethodType, OperationResult)} that should return lazily-initializable objects!)
  *
+ * TODO Decide on the fate of this object. It is quite similar to {@link ExistingResourceObjectShadow}.
+ *
  * @see ResourceObjectFound
  */
 public record CompleteResourceObject (
-        @NotNull ResourceObject resourceObject,
+        @NotNull ExistingResourceObjectShadow resourceObject,
         @NotNull LimitationReason limitationReason,
         @NotNull ErrorState errorState) implements Serializable, DebugDumpable {
 
-    public static @NotNull CompleteResourceObject of(@NotNull ResourceObject resourceObject, @NotNull ErrorState errorState) {
+    public static @NotNull CompleteResourceObject of(
+            @NotNull ExistingResourceObjectShadow resourceObject, @NotNull ErrorState errorState) {
         if (errorState.isOk()) {
             return new CompleteResourceObject(resourceObject, LimitationReason.NONE, errorState);
         } else {
@@ -48,13 +49,8 @@ public record CompleteResourceObject (
         }
     }
 
-    @Contract("null -> null; !null -> !null")
-    static CompleteResourceObject deletedNullable(@Nullable ResourceObject resourceObject) {
-        if (resourceObject != null) {
-            return new CompleteResourceObject(resourceObject, LimitationReason.OBJECT_DELETION, ErrorState.ok());
-        } else {
-            return null;
-        }
+    static @NotNull CompleteResourceObject ofDeleted(@NotNull ExistingResourceObjectShadow resourceObject) {
+        return new CompleteResourceObject(resourceObject, LimitationReason.OBJECT_DELETION, ErrorState.ok());
     }
 
     public @NotNull ShadowType getBean() {
@@ -63,16 +59,6 @@ public record CompleteResourceObject (
 
     public @NotNull PrismObject<ShadowType> getPrismObject() {
         return resourceObject.getPrismObject();
-    }
-
-    @Contract("null -> null; !null -> !null")
-    public static ShadowType getBean(CompleteResourceObject completeResourceObject) {
-        return completeResourceObject != null ? completeResourceObject.getBean() : null;
-    }
-
-    @Contract("null -> null; !null -> !null")
-    public static ResourceObject getResourceObject(CompleteResourceObject completeResourceObject) {
-        return completeResourceObject != null ? completeResourceObject.resourceObject : null;
     }
 
     @Override

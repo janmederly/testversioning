@@ -1,4 +1,12 @@
-= Advanced Hybrid RBAC
+---
+midpoint-feature: rbac
+doc-type: intro
+compliance:
+    iso27001:
+        '5.15':
+            description: 'Use of role-based access control (RBAC) as an access control mechanism.'
+---
+= MidPoint Role-Based Access Control Mechanism
 :page-nav-title: RBAC
 :page-wiki-name: Advanced Hybrid RBAC
 :page-wiki-id: 655534
@@ -7,8 +15,6 @@
 :page-wiki-metadata-modify-user: semancik
 :page-wiki-metadata-modify-date: 2019-09-20T13:12:53.208+02:00
 :page-toc: top
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: yellow
 
 == Introduction
@@ -149,6 +155,8 @@ See xref:/midpoint/reference/roles-policies/roles-and-policies-configuration/[Ro
 
 
 == See Also
+
+* xref:/midpoint/reference/roles-policies/pdrbac[]
 
 * xref:/midpoint/reference/roles-policies/roles-and-policies-configuration/[Roles and Policies Configuration] section in xref:/midpoint/[Documentation]
 

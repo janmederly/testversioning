@@ -11,6 +11,10 @@ import static com.evolveum.midpoint.model.impl.mining.algorithm.detection.Defaul
 
 import java.util.List;
 
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
+
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningOperationChunk;
@@ -29,10 +33,6 @@ import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.util.logging.Trace;
 import com.evolveum.midpoint.util.logging.TraceManager;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.ObjectReferenceType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisClusterType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisProcessModeType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisSessionType;
 
 /**
  * The `DetectionActionExecutor` class is responsible for executing the pattern detection process
@@ -94,11 +94,25 @@ public class DetectionActionExecutor extends BaseAction {
             LOGGER.error("Failed to resolve RoleAnalysisSessionType from UUID: {}", sessionOid);
             return;
         }
+        RoleAnalysisSessionType session = sessionTypeObject.asObjectable();
+        RoleAnalysisOptionType analysisOption = session.getAnalysisOption();
+        RoleAnalysisProcessModeType processMode = analysisOption.getProcessMode();
 
-        RoleAnalysisProcessModeType processMode = sessionTypeObject.asObjectable().getProcessMode();
+        SearchFilterType filter = null;
+        if (processMode.equals(RoleAnalysisProcessModeType.ROLE)) {
+            RoleAnalysisSessionOptionType roleModeOptions = session.getRoleModeOptions();
+            if (roleModeOptions != null) {
+                filter = roleModeOptions.getQuery();
+            }
+        } else if (processMode.equals(RoleAnalysisProcessModeType.USER)) {
+            UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
+            if (userModeOptions != null) {
+                filter = userModeOptions.getQuery();
+            }
+        }
 
-        MiningOperationChunk miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(cluster, true,
-                processMode, result, task);
+        MiningOperationChunk miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(cluster, filter,
+                true, processMode, result, task);
 
         List<MiningRoleTypeChunk> miningRoleTypeChunks = miningOperationChunk.getMiningRoleTypeChunks(RoleAnalysisSortMode.NONE);
         List<MiningUserTypeChunk> miningUserTypeChunks = miningOperationChunk.getMiningUserTypeChunks(RoleAnalysisSortMode.NONE);
@@ -110,7 +124,7 @@ public class DetectionActionExecutor extends BaseAction {
 
         if (detectedPatterns != null && !detectedPatterns.isEmpty()) {
             detectedPatterns = loadTopPatterns(detectedPatterns);
-            roleAnalysisService.replaceDetectionPattern(clusterOid,
+            roleAnalysisService.anylseAttributesAndReplaceDetectionPattern(clusterOid,
                     detectedPatterns, task, result
             );
         }

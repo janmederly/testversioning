@@ -9,6 +9,7 @@ package com.evolveum.midpoint.gui.api.util;
 import com.evolveum.midpoint.gui.api.GuiStyleConstants;
 import com.evolveum.midpoint.gui.api.page.PageAdminLTE;
 import com.evolveum.midpoint.gui.api.page.PageBase;
+import com.evolveum.midpoint.gui.api.prism.wrapper.PrismContainerValueWrapper;
 import com.evolveum.midpoint.gui.impl.util.IconAndStylesUtil;
 import com.evolveum.midpoint.gui.impl.util.RelationUtil;
 import com.evolveum.midpoint.model.api.AssignmentObjectRelation;
@@ -29,6 +30,7 @@ import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.wicket.model.IModel;
 
 import javax.xml.namespace.QName;
 
@@ -189,7 +191,7 @@ public class GuiDisplayTypeUtil {
         return createSimpleObjectRelationDisplayType(pageBase, defaultTitleKey, typeTitle, relationTitle);
     }
 
-    public static DisplayType getNewObjectDisplayTypeFromCollectionView(CompiledObjectCollectionView view, PageBase pageBase) {
+    public static DisplayType getNewObjectDisplayTypeFromCollectionView(CompiledObjectCollectionView view) {
         DisplayType displayType = view != null ? view.getDisplay() : null;
         if (displayType == null) {
             displayType = createDisplayType(GuiStyleConstants.CLASS_ADD_NEW_OBJECT, "green", "");
@@ -199,11 +201,15 @@ public class GuiDisplayTypeUtil {
             MiscSchemaUtil.mergeDisplay(displayType, createDisplayType(GuiStyleConstants.CLASS_ADD_NEW_OBJECT, "green", ""));
         }
 
-        if (PolyStringUtils.isEmpty(displayType.getTooltip()) && !PolyStringUtils.isEmpty(displayType.getLabel())) {
-            String sb = pageBase.createStringResource("MainObjectListPanel.newObject").getString()
-                    + " "
-                    + displayType.getLabel().getOrig().toLowerCase();
-            displayType.setTooltip(WebComponentUtil.createPolyFromOrigString(sb));
+        if (!PolyStringUtils.isEmpty(displayType.getSingularLabel()) || !PolyStringUtils.isEmpty(displayType.getLabel())) {
+            PolyStringType label = displayType.getSingularLabel() != null ?
+                    displayType.getSingularLabel() : displayType.getLabel();
+
+            String name = LocalizationUtil.translatePolyString(label);
+
+            String tooltip = LocalizationUtil.translate("MainObjectListPanel.newObjectWithName", new Object[]{ name });
+
+            displayType.setTooltip(WebComponentUtil.createPolyFromOrigString(tooltip));
         }
         return view != null ? view.getDisplay() : null;
     }
@@ -229,6 +235,13 @@ public class GuiDisplayTypeUtil {
         return displayType;
     }
 
+    public static String getDisplayCssClass(DisplayType displayType) {
+        if (displayType == null) {
+            return "";
+        }
+        return displayType.getCssClass();
+    }
+
     public static String getIconCssClass(DisplayType displayType) {
         if (displayType == null || displayType.getIcon() == null) {
             return "";
@@ -251,7 +264,7 @@ public class GuiDisplayTypeUtil {
         if (displayType == null || displayType.getIcon() == null) {
             return "";
         }
-        return displayType.getIcon().getColor();
+        return removeStringAfterSemicolon(displayType.getIcon().getColor());
     }
 
     public static String getHelp(DisplayType displayType) {
@@ -314,5 +327,37 @@ public class GuiDisplayTypeUtil {
         help.setTranslation(translationHelp);
         display.setHelp(help);
         return display;
+    }
+
+    public static String removeStringAfterSemicolon(String headerColor) {
+        if (headerColor == null || !headerColor.contains(";")) {
+            return headerColor;
+        }
+        return headerColor.substring(0, headerColor.indexOf(";"));
+    }
+
+    public static DisplayType getDisplayTypeForStrengthOfMapping(IModel<PrismContainerValueWrapper<MappingType>> rowModel) {
+        PrismContainerValueWrapper<MappingType> mapping = rowModel.getObject();
+        MappingType mappingBean = mapping.getRealValue();
+
+        MappingStrengthType strength = mappingBean.getStrength();
+        if (strength == null) {
+            strength = MappingStrengthType.NORMAL;
+        }
+
+        String cssClass = "fa fa-circle-half-stroke";
+
+        switch (strength) {
+            case WEAK -> cssClass = "fa-regular fa-circle";
+            case STRONG -> cssClass = "fa fa-circle";
+        }
+
+        return new DisplayType()
+                .tooltip(LocalizationUtil.translate(
+                        "AbstractSpecificMappingTileTable.tile.help",
+                        new Object[]{LocalizationUtil.translateEnum(strength)}))
+                .beginIcon()
+                .cssClass(cssClass)
+                .end();
     }
 }

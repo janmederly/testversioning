@@ -62,6 +62,15 @@ As of midPoint 4.4, the following items are supported (MT means "Supports multi-
 | See xref:/midpoint/reference/tasks/synchronization-tasks/live-synchronization/[].
 | `false`
 
+| `shadowReclassification`
+| Reclassification of specified resource objects.
+| Simple
+| N
+| Y
+| `resourceObjects`
+| What xref:../resource-object-set-specification/[resource objects] to import.
+| This is obligatory parameter.
+
 | `cleanup`
 | Cleans up obsolete objects: audit records, closed tasks, closed cases, closed certification
 campaigns, output reports, and dead nodes.
@@ -112,7 +121,7 @@ campaigns, output reports, and dead nodes.
 | Obligatory.
 
 .2+| `iterativeScripting`
-.2+| Executes a script (a.k.a. bulk action) over a set of objects.
+.2+| Executes a script (a.k.a. action) over a set of objects.
 .2+| Simple
 .2+| Y
 .2+| Y
@@ -125,7 +134,7 @@ but it is ignored.
 | Obligatory.
 
 | `nonIterativeScripting`
-| Executes a script (a.k.a. bulk action) on an empty or explicitly specified input. NOTE: not implemented yet, but hopefully will be in 4.4.
+| Executes a script (a.k.a. action) on an empty or explicitly specified input. NOTE: not implemented yet, but hopefully will be in 4.4.
 | Simple
 | N
 | N
@@ -297,6 +306,24 @@ the activity is not interruptible, except at step boundaries. If `hard` is used,
 the activity can be interrupted only in "hard" way, i.e. by sending the Java interrupt signal.
 Finally, `full` means that the activity can be interrupted any time.
 | `none`
+
+| `certificationNextStage`
+| Open a next stage of campaign based.
+| Simple
+| N
+| N
+| `certificationCampaignRef`
+| Specified certification campaign for opening next stage.
+| None.
+
+| `certificationRemediation`
+| Start remediation process for certification campaign.
+| Simple
+| N
+| N
+| `certificationCampaignRef`
+| Specified certification campaign for remediation.
+| None.
 
 | `extension`
 | This is a place for customer-provided activities.
