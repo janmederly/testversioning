@@ -1,6 +1,7 @@
 ---
 layout: release
 release-version: '4.9'
+visibility: hidden
 ---
 = MidPoint 4.9 "Verne"
 :release-version: 4.9
@@ -8,7 +9,7 @@ release-version: '4.9'
 :page-toc: top
 
 Release {release-version} is a fifty-TODO midPoint release, code-named _Verne_.
-The {release-version} release brings TODO test test2.
+The {release-version} release brings TODO.
 
 ++++
 {% include release-data.html %}
@@ -49,7 +50,7 @@ For more information see xrefv:/midpoint/reference/master/security/credentials/s
 ** Value metadata `storage` and `process` are indexed for assignments and available for search using `assignment/@metadata/storage`.
 * Ninja
 ** Added support for new verification categories: `MULTI_VALUE_REF_WITHOUT_OID`, `MISSING_NATURAL_KEY`, `MULTIVALUE_BYTE_ARRAY`, `PROTECTED_DATA_NOT_EXTERNAL`.
-For more information see xref:/midpoint/reference/deployment/ninja/command/verify.adoc[test].
+For more information see xref:/midpoint/reference/deployment/ninja/command/verify.adoc[].
 
 * Role mining
 ** Attribute Clustering Support:
@@ -87,10 +88,13 @@ Tree node search is now same for all nodes.
 
 * Spring Boot/hibernate upgrade
 ** Spring Boot was upgraded to 3.3.2 and Hibernate ORM to 6.5
-** H2 database was upgraded to 2.3.230. This version is not binary compatible with previous version, so export/import of whole repository would be necessary during upgrade.
 
 * Shadow table Partitioning in Native PostgreSQL Repository
 ** Midpoint automatically partition shadow tables based on resource and object class of shadow. Partitioning is enabled by default on new deployments and needs to be excplictly enabled on existing deployments. See xref:/midpoint/reference/repository/native-postgresql/shadow-partitioning/[Repository -> Native -> Shadow Partitioning] for details.
+
+* Support for H2 database was removed. Clean midPoint will fail to start with embedded H2 database.
+Preferred option to start simple midPoint instance is via docker compose. For more information see xref:/midpoint/install/containers/docker[here].
+
 
 === Other Improvements
 
@@ -101,7 +105,7 @@ See xref:/midpoint/reference/admin-gui/midpoint-jar-signature-status/[MidPoint J
 * We have added a new algorithm to detect which users are in the production-like environment. It would have the following impact, depending on your subscription status.
 - *active subscribers*: none
 - *subscribers who are in the renewal period*: none during the grace period of 90 days
-- *non-subscribers*: disabled cluster communication; if a non-H2 generic repository is used, the GUI would be disabled and the only option would be to set a subscription ID
+- *non-subscribers*: disabled cluster communication; if a generic repository is used, the GUI would be disabled and the only option would be to set a subscription ID
 - For more information, feel free to read link:https://evolveum.com/statement-midpoint-release-changes/[this blog post].
 
 * Duplication function of object or container showed in table.
@@ -123,6 +127,10 @@ More details can be found in the xrefv:/midpoint/reference/master/misc/notificat
 * Implementation of new task activities for opening next stage of certification campaign and certification remediation. More details can be found in the xrefv:/midpoint/reference/tasks/activities/work/[Work Definition (Types of Activities)].
 * Add a confirmation dialogue after changing the resource lifecycle state. See bug:MID-9315[].
 * Added the ability to modify selected object classes for resources via the Resource Schema panel. See bug:MID-8476[].
+* Renamed "Bulk actions" to "Actions" in GUI. See bug:MID-9619[].
+* Added the ability to configure UI form of the authentication sequence module with a label, description and external link.
+More information can be found in the xref:/midpoint/reference/security/authentication/flexible-authentication/modules/sequence/#authenticationsequencemoduletype[Authentication Sequence Module].
+* 'Resource object types' panel identifier changed from 'schemaHandling' to 'resourceObjectTypes' and panel was moved from top level menu item to submenu of new top level menu item 'Schema handling'. The 'schemaHandling' identifier is now used for the top level menu item.
 
 === Releases Of Other Components
 
@@ -270,14 +278,6 @@ xref:/midpoint/reference/repository/generic/[Generic repository implementation] 
 mapping abstraction (Hibernate), supporting several database engines with the same code.
 Following database engines are supported with this implementation:
 
-* H2 (embedded).
-Supported only in embedded mode.
-Not supported for production deployments.
-Only the version specifically bundled with midPoint is supported. +
-H2 is intended only for development, demo and similar use cases.
-It is *not* supported for any production use.
-Also, upgrade of deployments based on H2 database are not supported.
-
 * Oracle 21c
 * Microsoft SQL Server 2019
 
@@ -420,6 +420,9 @@ The complete new set of initial objects is in the `config/initial-objects` direc
 _Actions required:_ Please review the changes and apply them appropriately to your configuration. Ninja can help with updating existing initial objects during upgrade procedure using `initial-objects` command.
 For more information see xref:/midpoint/reference/deployment/ninja/use-case/upgrade-with-ninja/#initial-objects[here].
 
+* 040-role-enduser.xml: The `End user` role was updated with a hidden visibility for `myCertificationItems` dashboard widget.
+* 042-role-enduser.xml: The `Reviewer` role was extended with `myActiveCertificationCampaigns` UI authorization for active campaigns page and with more items of the certification campaign object to be read.
+* 000-system-configuration.xml: The `SystemConfiguration` object was extended with a new dashboard widget configuration for certification items.
 * 250-object-collection-resource.xml: The `All resources` object collection was updated with a filter to exclude resource templates.
 * 251-object-collection-resource-up.xml: The `Resources up` object collection was updated with a filter to exclude resource templates.
 * 520-archetype-task-certification.xml: Changes for proper functioning of certification related tasks.
