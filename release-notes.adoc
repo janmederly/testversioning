@@ -1,13 +1,14 @@
 ---
 layout: release
-release-version: '4.10.1-TEST'
+release-version: '4.10-TEST'
+visibility: hidden
 ---
-= MidPoint 4.10.1-TEST "Verne"
-:release-version: 4.10.1-TEST
+= MidPoint 4.10-TEST "Verne"
+:release-version: 4.10-TEST
 :page-liquid:
 :page-toc: top
 
-ONLY FOR TESTING OF RELEASE NOTES. (4.10.1-TEST)
+ONLY FOR TESTING OF RELEASE NOTES.
 
 Release {release-version} is a fifty-TODO midPoint release, code-named _Verne_.
 The {release-version} release brings TODO.
