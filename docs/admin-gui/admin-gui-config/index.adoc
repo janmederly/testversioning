@@ -1,4 +1,4 @@
-= Admin GUI Configuration
+= Admin GUI Configuration 4.10-TEST
 :page-wiki-name: Admin GUI Configuration 4.10-TEST
 :page-wiki-id: 24085280
 :page-wiki-metadata-create-user: semancik
@@ -8,6 +8,8 @@
 :page-keywords: [ "adminGuiConfig" ]
 :page-upkeep-status: yellow
 :page-toc: top
+
+4.10-TEST
 
 Admin GUI configuration is a specialized data structure that is present in xref:/midpoint/reference/concepts/system-configuration-object/[system configuration object], in all the role-like objects (roles, orgs, services), in the xref:/midpoint/architecture/archive/data-model/midpoint-common-schema/usertype/[user objects] and partially also in archetype objects. The admin GUI configuration structure influences how to user interface is displayed.
 Despite its name it applies both to the self-service part and administration part of the user interface.
