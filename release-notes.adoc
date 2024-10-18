@@ -8,7 +8,7 @@ visibility: hidden
 :page-liquid:
 :page-toc: top
 
-Release {release-version} is a fifty-TODO midPoint release, code-named _Verne_.
+Release {release-version} is a fifty-TODO midPoint release, code-named _Verne_. test
 The {release-version} release brings TODO. TEST
 
 ++++
