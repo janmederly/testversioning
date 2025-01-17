@@ -103,7 +103,7 @@ class ProjectionUpdateOperation<F extends ObjectType> {
         try {
             updateInternal(result);
         } catch (Throwable e) {
-            result.recordFatalError(e);
+            result.recordException(e);
             throw e;
         } finally {
             result.close();
@@ -232,6 +232,9 @@ class ProjectionUpdateOperation<F extends ObjectType> {
 
     /**
      * If "limit propagation" option is set, we set `canProject` to `false` for resources other than triggering one.
+     *
+     * TODO what about multiple object types on the same resource? We should perhaps limit the propagation to specific
+     *  object type, not just to the resource.
      */
     private void setCanProjectFlag() {
         String triggeringResourceOid = context.getTriggeringResourceOid();
@@ -244,14 +247,12 @@ class ProjectionUpdateOperation<F extends ObjectType> {
         }
     }
 
-    private void setProjectionSecurityPolicy(OperationResult result)
-            throws SchemaException, ObjectNotFoundException, SecurityViolationException, CommunicationException,
-            ConfigurationException, ExpressionEvaluationException {
+    private void setProjectionSecurityPolicy(OperationResult result) throws SchemaException, ConfigurationException {
         ResourceObjectDefinition structuralObjectDefinition = projectionContext.getStructuralObjectDefinition();
         if (structuralObjectDefinition != null) {
             LOGGER.trace("setProjectionSecurityPolicy: structural object class def = {}", structuralObjectDefinition);
             SecurityPolicyType projectionSecurityPolicy =
-                    beans.securityHelper.locateProjectionSecurityPolicy(structuralObjectDefinition, task, result);
+                    beans.securityPolicyFinder.locateResourceObjectSecurityPolicyLegacy(structuralObjectDefinition, result);
             LOGGER.trace("Located security policy for: {},\n {}", projectionContext, projectionSecurityPolicy);
             projectionContext.setProjectionSecurityPolicy(projectionSecurityPolicy);
         } else {

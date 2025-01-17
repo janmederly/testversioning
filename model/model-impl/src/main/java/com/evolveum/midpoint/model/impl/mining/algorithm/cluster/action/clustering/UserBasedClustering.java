@@ -14,9 +14,9 @@ import java.util.List;
 
 import com.evolveum.midpoint.common.mining.objects.analysis.cache.AttributeAnalysisCache;
 
+import com.evolveum.midpoint.common.mining.objects.analysis.cache.ObjectCategorisationCache;
 import com.google.common.collect.ListMultimap;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import com.evolveum.midpoint.common.mining.objects.handler.RoleAnalysisProgressIncrement;
 import com.evolveum.midpoint.model.api.ModelService;
@@ -44,13 +44,14 @@ public class UserBasedClustering implements Clusterable {
     /**
      * Executes the clustering operation for role analysis.
      *
-     * @param roleAnalysisService The role analysis service for performing operations.
-     * @param modelService The model service for performing operations.
-     * @param session The role analysis session object to be processed.
-     * @param handler The progress increment handler for tracking the execution progress.
-     * @param attributeAnalysisCache The cache for storing attribute analysis results.
-     * @param task The task being executed.
-     * @param result The operation result to record the outcome.
+     * @param roleAnalysisService       The role analysis service for performing operations.
+     * @param modelService              The model service for performing operations.
+     * @param session                   The role analysis session object to be processed.
+     * @param handler                   The progress increment handler for tracking the execution progress.
+     * @param attributeAnalysisCache    The cache for storing attribute analysis results.
+     * @param objectCategorisationCache The cache for storing object categorisation results.
+     * @param task                      The task being executed.
+     * @param result                    The operation result to record the outcome.
      * @return A list of PrismObject instances representing the role analysis clusters.
      */
     @Override
@@ -59,26 +60,32 @@ public class UserBasedClustering implements Clusterable {
             @NotNull ModelService modelService,
             @NotNull RoleAnalysisSessionType session,
             @NotNull RoleAnalysisProgressIncrement handler,
-            @NotNull AttributeAnalysisCache attributeAnalysisCache, @NotNull Task task,
+            @NotNull AttributeAnalysisCache attributeAnalysisCache, @NotNull ObjectCategorisationCache objectCategorisationCache, @NotNull Task task,
             @NotNull OperationResult result) {
 
         UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
-        int minRolesOccupancy = userModeOptions.getPropertiesRange().getMin().intValue();
-        int maxRolesOccupancy = userModeOptions.getPropertiesRange().getMax().intValue();
         double similarityThreshold = userModeOptions.getSimilarityThreshold();
         double similarityDifference = 1 - (similarityThreshold / 100);
         int minRolesOverlap = userModeOptions.getMinPropertiesOverlap();
         int minUsersCount = userModeOptions.getMinMembersCount();
         Boolean isIndirect = userModeOptions.isIsIndirect();
-        SearchFilterType query = userModeOptions.getQuery();
-        Integer maxDistance = userModeOptions.getMaxDistance();
+        SearchFilterType userSearchFilter = userModeOptions.getUserSearchFilter();
+        SearchFilterType roleSearchFilter = userModeOptions.getRoleSearchFilter();
+        SearchFilterType assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
 
         handler.enterNewStep(LOAD_DATA_STEP);
         handler.setOperationCountToProcess(1);
         //roles //users
-        ListMultimap<List<String>, String> chunkMap = loadData(modelService, isIndirect, minRolesOccupancy, maxRolesOccupancy,
-                query, result, task
-        );
+        ListMultimap<List<String>, String> chunkMap = loadUserBasedMultimapData(
+                roleAnalysisService,
+                isIndirect,
+                userSearchFilter,
+                roleSearchFilter,
+                assignmentSearchFilter,
+                attributeAnalysisCache,
+                objectCategorisationCache, task,
+                result,
+                session);
 
         handler.iterateActualStatus();
 
@@ -94,30 +101,13 @@ public class UserBasedClustering implements Clusterable {
         handler.iterateActualStatus();
         chunkMap.clear();
 
-        DistanceMeasure distanceMeasure = new JaccardDistancesMeasure(minRolesOverlap, maxDistance);
+        DistanceMeasure distanceMeasure = new JaccardDistancesMeasure(minRolesOverlap);
         DensityBasedClustering<DataPoint> dbscan = new DensityBasedClustering<>(similarityDifference,
                 minUsersCount, distanceMeasure, minRolesOverlap, ClusteringMode.BALANCED);
         List<Cluster<DataPoint>> clusters = dbscan.cluster(dataPoints, handler);
 
         return new RoleAnalysisAlgorithmUtils().processClusters(roleAnalysisService, dataPoints, clusters, session,
-                attributeAnalysisCache, handler, task, result);
-    }
-
-    @NotNull
-    public ListMultimap<List<String>, String> loadData(
-            @NotNull ModelService modelService,
-            @NotNull Boolean isIndirect,
-            int minRolesOccupancy,
-            int maxRolesOccupancy,
-            @Nullable SearchFilterType query,
-            @NotNull OperationResult result,
-            @NotNull Task task) {
-        if (isIndirect) {
-            return loadUserBasedMembershipMultimapData(modelService, minRolesOccupancy,
-                    maxRolesOccupancy, query, task, result);
-        }
-        return loadUserBasedMultimapData(modelService, minRolesOccupancy,
-                maxRolesOccupancy, query, task, result);
+                attributeAnalysisCache, objectCategorisationCache, handler, task, result);
     }
 
 }

@@ -19,6 +19,7 @@ import com.evolveum.midpoint.provisioning.impl.AbstractProvisioningIntegrationTe
 import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.prism.match.MatchingRule;
 import com.evolveum.midpoint.schema.constants.SchemaConstants;
+import com.evolveum.midpoint.schema.internals.InternalsConfig;
 import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.Resource;
@@ -174,10 +175,16 @@ public abstract class AbstractOpenDjTest extends AbstractProvisioningIntegration
     public void initSystem(Task initTask, OperationResult initResult) throws Exception {
         super.initSystem(initTask, initResult);
 
+        beforeImportingResource(initTask, initResult);
+
         resource = addResourceFromFile(getResourceOpenDjFile(), IntegrationTestTools.CONNECTOR_LDAP_TYPE, initResult);
         repoAddShadowFromFile(ACCOUNT_BAD_REPO_FILE, initResult);
 
         dnMatchingRule = matchingRuleRegistry.getMatchingRule(PrismConstants.DISTINGUISHED_NAME_MATCHING_RULE_NAME, DOMUtil.XSD_STRING);
+    }
+
+    protected void beforeImportingResource(Task initTask, OperationResult initResult) throws Exception {
+        // to be overridden in subclasses
     }
 
     @SafeVarargs
@@ -186,7 +193,7 @@ public abstract class AbstractOpenDjTest extends AbstractProvisioningIntegration
     }
 
     ItemName getPrimaryIdentifierQName() {
-        return new ItemName(NS_RI, OpenDJController.RESOURCE_OPENDJ_PRIMARY_IDENTIFIER_LOCAL_NAME);
+        return ItemName.from(NS_RI, OpenDJController.RESOURCE_OPENDJ_PRIMARY_IDENTIFIER_LOCAL_NAME);
     }
 
     ItemName getSecondaryIdentifierQName() {
@@ -212,7 +219,7 @@ public abstract class AbstractOpenDjTest extends AbstractProvisioningIntegration
         logger.info("------------------------------------------------------------------------------");
     }
 
-    @NotNull ResourceObjectDefinition getAccountDefaultDefinition() throws SchemaException, ConfigurationException {
+    private @NotNull ResourceObjectDefinition getAccountDefaultDefinition() throws SchemaException, ConfigurationException {
         return MiscUtil.stateNonNull(
                 Resource.of(resourceBean)
                         .getCompleteSchemaRequired()
@@ -220,8 +227,10 @@ public abstract class AbstractOpenDjTest extends AbstractProvisioningIntegration
                 "No account/default definition in %s", resourceBean);
     }
 
-    @NotNull Collection<? extends QName> getCachedAccountAttributes() throws SchemaException, ConfigurationException {
-        return getAccountDefaultDefinition().getAllIdentifiersNames();
+    private @NotNull Collection<? extends QName> getCachedAccountAttributes() throws SchemaException, ConfigurationException {
+        return InternalsConfig.isShadowCachingOnByDefault() ?
+                getAccountDefaultDefinition().getAttributeNames() :
+                getAccountDefaultDefinition().getAllIdentifiersNames();
     }
 
     /** TODO reconcile with {@link #assertRepoShadow(String)} */

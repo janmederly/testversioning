@@ -159,6 +159,10 @@ public abstract class ItemWrapperImpl<I extends Item<?, ?>, VW extends PrismValu
         return helpText;
     }
 
+    public void setHelp(String help) {
+        this.helpText = help;
+    }
+
     private String getLocalizedHelpText() {
         Class<?> containerClass = null;
         PrismContainerValue<?> val = newItem.getParent();
@@ -342,7 +346,7 @@ public abstract class ItemWrapperImpl<I extends Item<?, ?>, VW extends PrismValu
         }
 
         if (isMultiValue()) {
-            throw new SchemaException("Attempt to get sngle value from multi-value property.");
+            throw new SchemaException("Attempt to get single value from multi-value property.");
         }
 
         return getValues().iterator().next();
@@ -752,15 +756,14 @@ public abstract class ItemWrapperImpl<I extends Item<?, ?>, VW extends PrismValu
                 rawItem.remove(valueWrapper.getNewValue());
                 break;
             case NOT_CHANGED:
-//                if (isSingleValue()) {
-//                    valueWrapper.setRealValue(null);
-//                    valueWrapper.setStatus(ValueStatus.MODIFIED);
-//                } else {
-                    rawItem.remove(valueWrapper.getNewValue());
-                    valueWrapper.setStatus(ValueStatus.DELETED);
-//                }
+                removeNotChangedStatusValue(valueWrapper, rawItem);
                 break;
         }
+    }
+
+    protected void removeNotChangedStatusValue(VW valueWrapper, Item rawItem) {
+        rawItem.remove(valueWrapper.getNewValue());
+        valueWrapper.setStatus(ValueStatus.DELETED);
     }
 
     protected abstract <PV extends PrismValue> PV createNewEmptyValue(ModelServiceLocator locator);

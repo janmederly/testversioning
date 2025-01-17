@@ -6,6 +6,7 @@
  */
 package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.panel.outlier;
 
+import static com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableTools.densityBasedColorOposite;
 
 import java.math.BigDecimal;
@@ -68,14 +69,17 @@ public class RoleAnalysisPartitionOverviewPanel extends BasePanel<RoleAnalysisOu
     }
 
     private @NotNull Component getHeaderComponent(String id) {
-        RoleAnalysisOutlierType object = outlierModel.getObject();
+        if (getOutlierModel() == null || getOutlierModel().getObject() == null) {
+            return new WebMarkupContainer(id);
+        }
+        RoleAnalysisOutlierType object = getOutlierModel().getObject();
 
         PageBase pageBase = getPageBase();
         Task simpleTask = pageBase.createSimpleTask("Load object");
         OperationResult result = simpleTask.getResult();
         RoleAnalysisService roleAnalysisService = pageBase.getRoleAnalysisService();
         PrismObject<UserType> userPrismObject = roleAnalysisService
-                .getUserTypeObject(object.getTargetObjectRef().getOid(), simpleTask, result);
+                .getUserTypeObject(object.getObjectRef().getOid(), simpleTask, result);
         if (userPrismObject == null) {
             return new WebMarkupContainer(id);
         }
@@ -103,8 +107,9 @@ public class RoleAnalysisPartitionOverviewPanel extends BasePanel<RoleAnalysisOu
         double pointsDensity = bd.doubleValue();
 
         OutlierHeaderResultPanel components = new OutlierHeaderResultPanel(id,
+                outlierModel.getObject().getOid(),
                 outlierName,
-                "User has been marked as outlier object due to confidence score:",
+                translate("Analysis.outlier.result.panel.title"),
                 String.valueOf(pointsDensity), formattedDate);
         components.setOutputMarkupId(true);
         return components;
@@ -142,6 +147,10 @@ public class RoleAnalysisPartitionOverviewPanel extends BasePanel<RoleAnalysisOu
     }
 
     private @NotNull IModel<List<WidgetItemModel>> loadDetailsModel() {
+
+        if (getOutlierModel() == null || getOutlierModel().getObject() == null || getModelObject() == null) {
+            return Model.ofList(new ArrayList<>());
+        }
 
         RoleAnalysisOutlierType outlier = getOutlierModel().getObject();
         RoleAnalysisOutlierPartitionType partition = getModelObject();

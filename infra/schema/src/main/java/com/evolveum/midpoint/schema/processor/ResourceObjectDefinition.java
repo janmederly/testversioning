@@ -58,7 +58,7 @@ public interface ResourceObjectDefinition
         AssociationDefinitionStore,
         LayeredDefinition,
         FrameworkNameResolver,
-        ResourceObjectInboundDefinition,
+        ResourceObjectInboundProcessingDefinition,
         TypeDefinition {
 
     /**
@@ -243,6 +243,11 @@ public interface ResourceObjectDefinition
     @Nullable ResourcePasswordDefinitionType getPasswordDefinition();
 
     /**
+     * See {@link ResourceObjectTypeDefinitionType#getBehavior()}
+     */
+    @Nullable ResourceLastLoginTimestampDefinitionType getLastLoginTimestampDefinition();
+
+    /**
      * TODO Rarely used, consider removing from the interface
      */
     default @Nullable AttributeFetchStrategyType getPasswordFetchStrategy() {
@@ -256,12 +261,12 @@ public interface ResourceObjectDefinition
         return password.getFetchStrategy();
     }
 
-    default @NotNull List<MappingType> getPasswordInbound() {
+    default @NotNull List<MappingType> getPasswordInboundMappings() {
         ResourcePasswordDefinitionType password = getPasswordDefinition();
         return password != null ? password.getInbound() : List.of();
     }
 
-    default @NotNull List<MappingType> getPasswordOutbound() {
+    default @NotNull List<MappingType> getPasswordOutboundMappings() {
         ResourcePasswordDefinitionType password = getPasswordDefinition();
         return password != null ? password.getOutbound() : List.of();
     }
@@ -279,6 +284,11 @@ public interface ResourceObjectDefinition
                 getActivationSchemaHandling(), itemName);
     }
 
+    default @NotNull List<MappingType> getActivationInboundMappings(ItemName itemName) {
+        return ResourceObjectDefinitionUtil.getActivationInboundMappings(
+                getActivationBidirectionalMappingType(itemName));
+    }
+
     /**
      * TODO Rarely used, consider removing from the interface
      */
@@ -291,6 +301,17 @@ public interface ResourceObjectDefinition
             return AttributeFetchStrategyType.IMPLICIT;
         }
         return biType.getFetchStrategy();
+    }
+
+    default @Nullable AttributeFetchStrategyType getLastLoginTimestampFetchStrategy() {
+        ResourceLastLoginTimestampDefinitionType definition = getLastLoginTimestampDefinition();
+        if (definition == null) {
+            return AttributeFetchStrategyType.IMPLICIT;
+        }
+        if (definition.getFetchStrategy() == null) {
+            return AttributeFetchStrategyType.IMPLICIT;
+        }
+        return definition.getFetchStrategy();
     }
 
     /**
@@ -337,7 +358,7 @@ public interface ResourceObjectDefinition
      * It contains only the object class name and resource OID.
      *
      * Kind/intent are NOT set, because the definition may be a "default type definition for given object class"
-     * (which is sadly still supported); and we do not want to create typed shadows in such cases.
+     * (which is sadly still supported, MID-10309); and we do not want to create typed shadows in such cases.
      *
      * {@link ShadowBuilder#withDefinition(ResourceObjectDefinition)} provides kind and intent.
      */
@@ -637,8 +658,26 @@ public interface ResourceObjectDefinition
             return legacy != CachingStrategyType.NONE;
         }
 
+        return areCredentialsCachedInModernWay();
+    }
+
+    private boolean areCredentialsCachedInModernWay() {
         return isCachingEnabled()
-                && getEffectiveShadowCachingPolicy().getScope().getCredentials() != ShadowItemsCachingScopeType.NONE;
+                && getEffectiveShadowCachingPolicy().getScope().getCredentials().getPassword() != ShadowItemsCachingScopeType.NONE;
+    }
+
+    /** Returns `true` if the caching is turned on, but only because of the legacy configuration. */
+    default boolean areCredentialsCachedLegacy() {
+        if (!areCredentialsCached()) {
+            // The above method ensures that the legacy caching takes precedence over the modern one. But this check is here
+            // to be sure that even if the method changes, the general contract if this method will still be valid.
+            return false;
+        }
+        if (getLegacyPasswordCachingStrategy() != CachingStrategyType.PASSIVE) {
+            return false;
+        }
+        // Now we need to check if the modern configuration style would not enable the caching anyway.
+        return !areCredentialsCachedInModernWay();
     }
 
     private CachingStrategyType getLegacyPasswordCachingStrategy() {
@@ -671,26 +710,43 @@ public interface ResourceObjectDefinition
 
     default @Nullable String getDefaultOperationPolicyOid(@NotNull TaskExecutionMode mode) throws ConfigurationException {
         var bean = getDefinitionBean();
-        var oldWay = bean.getDefaultOperationPolicyRef(); // TODO remove before 4.9 release
-        var newWay = bean.getDefaultOperationPolicy();
-        if (oldWay != null) {
-            if (!newWay.isEmpty()) {
-                throw new ConfigurationException(
-                        "Both old and new way of specifying default operation policy in %s: %s and %s".formatted(
-                                this, oldWay, newWay));
-            } else {
-                return getOid(oldWay);
-            }
-        } else {
-            var oids = newWay.stream()
-                    .filter(policy -> SimulationUtil.isVisible(policy.getLifecycleState(), mode))
-                    .map(policy -> getOid(policy.getPolicyRef()))
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            return MiscUtil.extractSingleton(
-                    oids,
-                    () -> new ConfigurationException(
-                            "Multiple OIDs for default operation policy in %s for %s: %s".formatted(this, mode, oids)));
+        var oids = bean.getDefaultOperationPolicy().stream()
+                .filter(policy -> SimulationUtil.isVisible(policy.getLifecycleState(), mode))
+                .map(policy -> getOid(policy.getPolicyRef()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return MiscUtil.extractSingleton(
+                oids,
+                () -> new ConfigurationException(
+                        "Multiple OIDs for default operation policy in %s for %s: %s".formatted(this, mode, oids)));
+    }
+
+    /** See {@link ShadowAttributeDefinition#isVolatileOnAddOperation()}. */
+    @NotNull Collection<ShadowAttributeDefinition<?, ?, ?, ?>> getAttributesVolatileOnAddOperation();
+
+    /** See {@link ShadowAttributeDefinition#isVolatileOnModifyOperation()}. */
+    @NotNull Collection<ShadowAttributeDefinition<?, ?, ?, ?>> getAttributesVolatileOnModifyOperation();
+
+    /**
+     * Returns the name of the auxiliary object class where given attribute is defined.
+     *
+     * If the attribute is defined on the structural object class or if the attribute is not defined on any auxiliary
+     * object class, `null` is returned.
+     *
+     * Limitations:
+     *
+     * - Ignores case sensitivity.
+     * - Use only for simple attributes.
+     */
+    default @Nullable QName getAuxiliaryObjectClassNameForAttribute(@NotNull QName attrName) {
+        if (getObjectClassDefinition().findAttributeDefinition(attrName) != null) {
+            return null;
         }
+        for (var auxiliaryDefinition : getAuxiliaryDefinitions()) {
+            if (auxiliaryDefinition.findAttributeDefinition(attrName) != null) {
+                return auxiliaryDefinition.getObjectClassName();
+            }
+        }
+        return null;
     }
 }

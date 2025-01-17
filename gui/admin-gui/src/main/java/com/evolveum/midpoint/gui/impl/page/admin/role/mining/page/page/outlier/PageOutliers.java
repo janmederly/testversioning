@@ -7,17 +7,26 @@
 
 package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.page.outlier;
 
+import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.RoleAnalysisWebUtils.explainOutlier;
+import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.RoleAnalysisWebUtils.loadUserWrapperForMarkAction;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableTools.densityBasedColorOposite;
 
 import java.io.Serial;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
-import com.evolveum.midpoint.util.exception.SystemException;
+import com.evolveum.midpoint.gui.api.prism.wrapper.PrismObjectWrapper;
+import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
+import com.evolveum.midpoint.gui.impl.page.admin.mark.component.MarksOfObjectListPopupPanel;
+import com.evolveum.midpoint.model.api.ModelService;
+import com.evolveum.midpoint.prism.PrismObject;
+import com.evolveum.midpoint.prism.path.ItemPath;
+import com.evolveum.midpoint.schema.GetOperationOptions;
+import com.evolveum.midpoint.schema.SelectorOptions;
+import com.evolveum.midpoint.util.exception.*;
+
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -28,6 +37,7 @@ import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.model.IModel;
+import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.jetbrains.annotations.Contract;
@@ -39,7 +49,6 @@ import com.evolveum.midpoint.authentication.api.authorization.Url;
 import com.evolveum.midpoint.gui.api.GuiStyleConstants;
 import com.evolveum.midpoint.gui.api.component.LabelWithHelpPanel;
 import com.evolveum.midpoint.gui.api.component.MainObjectListPanel;
-import com.evolveum.midpoint.gui.api.component.form.SwitchBoxPanel;
 import com.evolveum.midpoint.gui.api.page.PageBase;
 import com.evolveum.midpoint.gui.impl.component.icon.CompositedIconBuilder;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.components.ProgressBarSecondStyle;
@@ -57,10 +66,6 @@ import com.evolveum.midpoint.web.component.menu.cog.InlineMenuItemAction;
 import com.evolveum.midpoint.web.component.util.SelectableBean;
 import com.evolveum.midpoint.web.page.admin.PageAdmin;
 import com.evolveum.midpoint.web.session.UserProfileStorage.TableId;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.DetectedAnomalyResult;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisOutlierPartitionType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisOutlierType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleType;
 
 @PageDescriptor(
         urls = {
@@ -122,9 +127,19 @@ public class PageOutliers extends PageAdmin {
             }
 
             @Override
+            protected boolean isCreateNewObjectVisible() {
+                return false;
+            }
+
+            @Override
+            protected boolean isReportObjectButtonVisible() {
+                return false;
+            }
+
+            @Override
             protected List<InlineMenuItem> createInlineMenu() {
                 List<InlineMenuItem> menuItems = new ArrayList<>();
-                menuItems.add(PageOutliers.this.createRecertifyInlineMenu());
+                menuItems.add(PageOutliers.this.createMarkInlineMenu());
                 menuItems.add(PageOutliers.this.createDeleteInlineMenu());
                 return menuItems;
             }
@@ -132,6 +147,45 @@ public class PageOutliers extends PageAdmin {
             @Override
             protected void addBasicActions(List<InlineMenuItem> menuItems) {
                 //TODO TBD
+            }
+
+            @Override
+            protected @NotNull IModel<String> createRealMarksList(SelectableBean<RoleAnalysisOutlierType> bean) {
+                return new LoadableDetachableModel<>() {
+
+                    @Override
+                    protected String load() {
+                        RoleAnalysisOutlierType value = bean.getValue();
+                        PageBase pageBase = getPageBase();
+                        ObjectReferenceType objectRef = value.getObjectRef();
+                        String userOid = objectRef.getOid();
+
+                        Task task = pageBase.createSimpleTask("loadOutlierUserObject");
+                        OperationResult result = task.getResult();
+
+                        ModelService modelService = pageBase.getModelService();
+
+                        Collection<SelectorOptions<GetOperationOptions>> options = pageBase.getOperationOptionsBuilder()
+                                .noFetch()
+                                .item(ItemPath.create(ObjectType.F_POLICY_STATEMENT, PolicyStatementType.F_MARK_REF)).resolve()
+                                .item(ItemPath.create(ObjectType.F_POLICY_STATEMENT, PolicyStatementType.F_LIFECYCLE_STATE)).resolve()
+                                .build();
+
+                        PrismObject<UserType> userObject;
+                        try {
+                            userObject = modelService.getObject(UserType.class, userOid, options, task, result);
+                        } catch (ExpressionEvaluationException | SecurityViolationException | CommunicationException |
+                                ConfigurationException | ObjectNotFoundException | SchemaException e) {
+                            throw new SystemException("Cannot create wrapper for " + userOid, e);
+
+                        }
+                        if (userObject == null) {
+                            return null;
+                        }
+
+                        return WebComponentUtil.createMarkList(userObject.asObjectable(), getPageBase());
+                    }
+                };
             }
 
             @Contract(pure = true)
@@ -145,6 +199,41 @@ public class PageOutliers extends PageAdmin {
                 List<IColumn<SelectableBean<RoleAnalysisOutlierType>, String>> defaultColumns = super.createDefaultColumns();
 
                 IColumn<SelectableBean<RoleAnalysisOutlierType>, String> column;
+
+                column = new AbstractExportableColumn<>(
+                        createStringResource("RoleAnalysisOutlierTable.outlier.explanation")) {
+
+                    @Override
+                    public IModel<?> getDataModel(IModel<SelectableBean<RoleAnalysisOutlierType>> iModel) {
+                        return Model.of("");
+                    }
+
+                    @Override
+                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisOutlierType>>> cellItem,
+                            String componentId, IModel<SelectableBean<RoleAnalysisOutlierType>> model) {
+                        RoleAnalysisOutlierType outlierObject = model.getObject().getValue();
+                        Model<String> explanationTranslatedModel = explainOutlier(outlierObject);
+                        cellItem.add(new Label(componentId, explanationTranslatedModel));
+                    }
+
+                    @Override
+                    public boolean isSortable() {
+                        return false;
+                    }
+
+                    @Override
+                    public Component getHeader(String componentId) {
+                        return new LabelWithHelpPanel(componentId,
+                                createStringResource("RoleAnalysisOutlierTable.outlier.explanation")) {
+                            @Override
+                            protected IModel<String> getHelpModel() {
+                                return createStringResource("RoleAnalysisOutlierTable.outlier.explanation.help");
+                            }
+                        };
+                    }
+                };
+                defaultColumns.add(column);
+
                 column = new AbstractExportableColumn<>(
                         createStringResource("RoleAnalysisOutlierTable.outlier.access")) {
 
@@ -181,41 +270,6 @@ public class PageOutliers extends PageAdmin {
                     }
                 };
                 defaultColumns.add(column);
-                column = new AbstractExportableColumn<>(
-                        createStringResource("RoleAnalysisOutlierType.outlierPartitions")) {
-
-                    @Override
-                    public IModel<?> getDataModel(IModel<SelectableBean<RoleAnalysisOutlierType>> iModel) {
-                        RoleAnalysisOutlierType outlierObject = iModel.getObject().getValue();
-                        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlierObject.getOutlierPartitions();
-                        return Model.of(outlierPartitions.size());
-                    }
-
-                    @Override
-                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisOutlierType>>> cellItem,
-                            String componentId, IModel<SelectableBean<RoleAnalysisOutlierType>> model) {
-                        RoleAnalysisOutlierType outlierObject = model.getObject().getValue();
-                        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlierObject.getOutlierPartitions();
-                        cellItem.add(new Label(componentId, outlierPartitions.size()));
-                    }
-
-                    @Override
-                    public boolean isSortable() {
-                        return false;
-                    }
-
-                    @Override
-                    public Component getHeader(String componentId) {
-                        return new LabelWithHelpPanel(componentId,
-                                createStringResource("RoleAnalysisOutlierType.outlierPartitions")) {
-                            @Override
-                            protected IModel<String> getHelpModel() {
-                                return createStringResource("RoleAnalysisOutlierTable.outlier.partitions.help");
-                            }
-                        };
-                    }
-                };
-                defaultColumns.add(column);
 
                 column = new AbstractExportableColumn<>(
                         createStringResource("RoleAnalysisOutlierTable.outlier.confidence")) {
@@ -238,7 +292,12 @@ public class PageOutliers extends PageAdmin {
 
                     @Override
                     public boolean isSortable() {
-                        return false;
+                        return true;
+                    }
+
+                    @Override
+                    public String getSortProperty() {
+                        return RoleAnalysisOutlierType.F_OVERALL_CONFIDENCE.getLocalPart();
                     }
 
                     @Override
@@ -255,39 +314,39 @@ public class PageOutliers extends PageAdmin {
                 };
                 defaultColumns.add(column);
 
-                column = new AbstractExportableColumn<>(
-                        createStringResource("RoleAnalysisOutlierTable.outlier.mark")) {
-
-                    @Override
-                    public IModel<?> getDataModel(IModel<SelectableBean<RoleAnalysisOutlierType>> iModel) {
-                        RoleAnalysisOutlierType outlier = iModel.getObject().getValue();
-                        return Model.of(outlier.getDescription());
-                    }
-
-                    @Override
-                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisOutlierType>>>
-                            cellItem, String componentId, IModel<SelectableBean<RoleAnalysisOutlierType>> model) {
-                        cellItem.add(new SwitchBoxPanel(componentId, new Model<>(false)));
-                    }
-
-                    @Override
-                    public boolean isSortable() {
-                        return false;
-                    }
-
-                    @Override
-                    public Component getHeader(String componentId) {
-                        return new LabelWithHelpPanel(componentId,
-                                createStringResource("RoleAnalysisOutlierTable.outlier.mark")) {
-                            @Override
-                            protected IModel<String> getHelpModel() {
-                                return createStringResource("RoleAnalysisOutlierTable.outlier.mark.help");
-                            }
-                        };
-                    }
-
-                };
-                defaultColumns.add(column);
+//                column = new AbstractExportableColumn<>(
+//                        createStringResource("RoleAnalysisOutlierTable.outlier.mark")) {
+//
+//                    @Override
+//                    public IModel<?> getDataModel(IModel<SelectableBean<RoleAnalysisOutlierType>> iModel) {
+//                        RoleAnalysisOutlierType outlier = iModel.getObject().getValue();
+//                        return Model.of(outlier.getDescription());
+//                    }
+//
+//                    @Override
+//                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisOutlierType>>>
+//                            cellItem, String componentId, IModel<SelectableBean<RoleAnalysisOutlierType>> model) {
+//                        cellItem.add(new SwitchBoxPanel(componentId, new Model<>(false)));
+//                    }
+//
+//                    @Override
+//                    public boolean isSortable() {
+//                        return false;
+//                    }
+//
+//                    @Override
+//                    public Component getHeader(String componentId) {
+//                        return new LabelWithHelpPanel(componentId,
+//                                createStringResource("RoleAnalysisOutlierTable.outlier.mark")) {
+//                            @Override
+//                            protected IModel<String> getHelpModel() {
+//                                return createStringResource("RoleAnalysisOutlierTable.outlier.mark.help");
+//                            }
+//                        };
+//                    }
+//
+//                };
+//                defaultColumns.add(column);
                 return defaultColumns;
             }
 
@@ -312,7 +371,7 @@ public class PageOutliers extends PageAdmin {
 
     private static @NotNull Set<String> resolveOutlierAnomalies(@NotNull RoleAnalysisOutlierType outlierObject) {
         Set<String> anomalies = new HashSet<>();
-        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlierObject.getOutlierPartitions();
+        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlierObject.getPartition();
         for (RoleAnalysisOutlierPartitionType outlierPartition : outlierPartitions) {
             List<DetectedAnomalyResult> detectedAnomalyResult = outlierPartition.getDetectedAnomalyResult();
             for (DetectedAnomalyResult detectedAnomaly : detectedAnomalyResult) {
@@ -427,9 +486,9 @@ public class PageOutliers extends PageAdmin {
     }
 
     @Contract(" -> new")
-    private @NotNull InlineMenuItem createRecertifyInlineMenu() {
+    private @NotNull InlineMenuItem createMarkInlineMenu() {
         return new ButtonInlineMenuItem(
-                createStringResource("RoleAnalysisDetectedAnomalyTable.inline.recertify.title")) {
+                createStringResource("RoleAnalysisDetectedAnomalyTable.inline.mark.title")) {
             @Override
             public CompositedIconBuilder getIconCompositedBuilder() {
                 return getDefaultCompositedIconBuilder(GuiStyleConstants.CLASS_ICON_RECYCLE);
@@ -441,13 +500,51 @@ public class PageOutliers extends PageAdmin {
             }
 
             public InlineMenuItemAction initAction() {
-                return new ColumnMenuAction<SelectableBean<RoleType>>() {
+                PageBase pageBase = (PageBase) getPage();
+                return new ColumnMenuAction<SelectableBean<RoleAnalysisOutlierType>>() {
                     @Override
                     public void onClick(AjaxRequestTarget target) {
+                        IModel<SelectableBean<RoleAnalysisOutlierType>> selected = getRowModel();
+                        if (selected == null) {
+                            warn(getString("MainObjectListPanel.message.noFocusSelected"));
+                            target.add(((PageBase) getPage()).getFeedbackPanel());
+                            return;
+                        }
 
-                        //TODO
+                        RoleAnalysisOutlierType outlierObject = selected.getObject().getValue();
+                        ObjectReferenceType objectRef = outlierObject.getObjectRef();
+
+                        String userOid = objectRef.getOid();
+
+                        OperationResult result = new OperationResult("createWrapper");
+                        LoadableDetachableModel<PrismObjectWrapper<UserType>> focusModel = loadUserWrapperForMarkAction(userOid, pageBase, result);
+
+                        if (focusModel.getObject() == null) {
+                            if (result.isSuccess()) {
+                                warn(getString("ProcessedObjectsPanel.message.noObjectFound",
+                                        selected.getObject().getValue().getOid()));
+                            }
+                            target.add(((PageBase) getPage()).getFeedbackPanel());
+                            return;
+                        }
+
+                        MarksOfObjectListPopupPanel<?> popup = new MarksOfObjectListPopupPanel<>(
+                                pageBase.getMainPopupBodyId(), focusModel) {
+                            @Override
+                            protected void onSave(AjaxRequestTarget target) {
+                                pageBase.hideMainPopup(target);
+                                getTable().refreshTable(target);
+                            }
+                        };
+
+                        pageBase.showMainPopup(popup, target);
                     }
                 };
+            }
+
+            @Override
+            public boolean isHeaderMenuItem() {
+                return false;
             }
         };
     }

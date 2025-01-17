@@ -106,6 +106,8 @@ public class QShadowMapping
                 .addItemMapping(ActivationType.F_ENABLE_TIMESTAMP,timestampMapper(q -> q.enableTimestamp))
                 .addItemMapping(ActivationType.F_DISABLE_TIMESTAMP, timestampMapper(q -> q.disableTimestamp))
         ;
+        addNestedMapping(F_BEHAVIOR, ShadowBehaviorType.class)
+                .addItemMapping(ShadowBehaviorType.F_LAST_LOGIN_TIMESTAMP, timestampMapper(q -> q.lastLoginTimestamp));
         // Item mapping to update the count, relation resolver for query with EXISTS filter.
         addItemMapping(F_PENDING_OPERATION, new SqaleItemSqlMapper<>(
                 ctx -> new CountItemDeltaProcessor<>(ctx, q -> q.pendingOperationCount)));
@@ -172,6 +174,10 @@ public class QShadowMapping
             row.enableTimestamp = MiscUtil.asInstant(activation.getEnableTimestamp());
             row.disableTimestamp = MiscUtil.asInstant(activation.getDisableTimestamp());
         }
+        var behavior = shadow.getBehavior();
+        if (behavior != null) {
+            row.lastLoginTimestamp = MiscUtil.asInstant(behavior.getLastLoginTimestamp());
+        }
         return row;
     }
 
@@ -204,7 +210,6 @@ public class QShadowMapping
                 }
             }
         }
-
    }
 
     @Override
@@ -212,23 +217,7 @@ public class QShadowMapping
             @NotNull JdbcSession jdbcSession, Collection<SelectorOptions<GetOperationOptions>> options) throws SchemaException {
         ShadowType shadowType = super.toSchemaObject(row, entityPath, jdbcSession, options);
         shadowType.asPrismObject().removeContainer(ShadowType.F_ASSOCIATIONS); // temporary
-
-        GetOperationOptions rootOptions = SelectorOptions.findRootOptions(options);
-        /*if (GetOperationOptions.isRaw(rootOptions)) {
-            // If raw=true, we populate attributes with types cached in repository
-            Jsonb rowAttributes = row.get(entityPath.attributes);
-            applyShadowAttributesDefinitions(shadowType, rowAttributes);
-        }*/
         addIndexOnlyAttributes(shadowType, row, entityPath);
-        List<SelectorOptions<GetOperationOptions>> retrieveOptions = SelectorOptions.filterRetrieveOptions(options);
-        if (retrieveOptions.isEmpty()) {
-            return shadowType;
-        }
-
-        // FIXME temporarily disabled
-//        if (SelectorOptions.hasToFetchPathNotRetrievedByDefault(F_ATTRIBUTES, retrieveOptions)) {
-
-//        }
         return shadowType;
     }
 
@@ -257,8 +246,8 @@ public class QShadowMapping
     @Override
     public Collection<SelectorOptions<GetOperationOptions>> updateGetOptions(
             Collection<SelectorOptions<GetOperationOptions>> options,
-            @NotNull Collection<? extends ItemDelta<?, ?>> modifications) {
-        List<SelectorOptions<GetOperationOptions>> ret = new ArrayList<>(super.updateGetOptions(options, modifications));
+            @NotNull Collection<? extends ItemDelta<?, ?>> modifications, boolean forceReindex) {
+        List<SelectorOptions<GetOperationOptions>> ret = new ArrayList<>(super.updateGetOptions(options, modifications, forceReindex));
 
         if (modifications.stream().anyMatch(m -> F_ATTRIBUTES.isSubPath(m.getPath()))) {
             ret.addAll(SchemaService.get().getOperationOptionsBuilder().item(F_ATTRIBUTES).retrieve().build());
@@ -269,8 +258,11 @@ public class QShadowMapping
     @Override
     public @NotNull Path<?>[] selectExpressions(QShadow entity,
             Collection<SelectorOptions<GetOperationOptions>> options) {
-        var retrieveOptions = SelectorOptions.filterRetrieveOptions(options);
-        return new Path[] { entity.oid, entity.objectType, entity.fullObject, entity.attributes };
+        var ret = super.selectExpressions(entity, options);
+        if (isExcludeAll(options)) {
+            return ret;
+        }
+        return appendPaths(ret, entity.attributes);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
@@ -318,5 +310,31 @@ public class QShadowMapping
     @Override
     public ShadowPartitionManager getPartitionManager() {
         return partitionManager;
+    }
+
+    @Override
+    public void preprocessCacheableUris(ShadowType shadow) {
+        //QShadowReferenceAttributeMapping.get().preprocessCacheableUris();
+        processCacheableUri(shadow.getObjectClass());
+        var activation = shadow.getActivation();
+        if (activation != null) {
+            processCacheableUri(activation.getDisableReason());
+        }
+        var refAttrsBean = shadow.getReferenceAttributes();
+        if (refAttrsBean == null) {
+            return;
+        }
+        PrismContainerValue<?> refAttrs = refAttrsBean.asPrismContainerValue();
+        for (var item : refAttrs.getItems()) {
+            var name = item.getElementName();
+            if (item instanceof PrismReference ref) {
+                Integer pathId = null;
+                for (var val : ref.getValues()) {
+                    if (pathId == null) {
+                        pathId = repositoryContext().processCacheableUri(name);
+                    }
+                }
+            }
+        }
     }
 }

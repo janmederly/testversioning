@@ -11,21 +11,29 @@ import static com.evolveum.midpoint.schema.util.ObjectTypeUtil.asPrismObject;
 import static com.evolveum.midpoint.util.DebugUtil.lazy;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
 
-import com.evolveum.midpoint.model.api.InboundSourceData;
-import com.evolveum.midpoint.model.impl.lens.LensProjectionContext;
-import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.*;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import com.evolveum.midpoint.model.common.mapping.MappingEvaluationEnvironment;
+import com.evolveum.midpoint.model.impl.lens.LensContext;
+import com.evolveum.midpoint.model.impl.lens.LensProjectionContext;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.consolidation.DeltaSetTripleMapConsolidation.APrioriDeltaProvider;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.FullInboundsContext;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.FullInboundsSource;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.FullInboundsTarget;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.SingleShadowInboundsPreparation;
 import com.evolveum.midpoint.model.impl.lens.projector.mappings.*;
 import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.prism.crypto.EncryptionException;
+import com.evolveum.midpoint.prism.delta.ItemDelta;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.prism.delta.PrismValueDeltaSetTriple;
 import com.evolveum.midpoint.prism.delta.PropertyDelta;
 import com.evolveum.midpoint.prism.path.ItemName;
+import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.prism.util.ItemDeltaItem;
 import com.evolveum.midpoint.repo.common.expression.Source;
 import com.evolveum.midpoint.schema.config.ConfigurationItem;
@@ -34,23 +42,13 @@ import com.evolveum.midpoint.schema.config.MappingConfigItem;
 import com.evolveum.midpoint.schema.config.OriginProvider;
 import com.evolveum.midpoint.schema.constants.ExpressionConstants;
 import com.evolveum.midpoint.schema.constants.SchemaConstants;
-import com.evolveum.midpoint.util.DebugUtil;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
-
-import com.evolveum.prism.xml.ns._public.types_3.ProtectedStringType;
-
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
-import com.evolveum.midpoint.model.common.mapping.MappingEvaluationEnvironment;
-import com.evolveum.midpoint.model.impl.lens.LensContext;
-import com.evolveum.midpoint.model.impl.lens.projector.focus.consolidation.DeltaSetTripleMapConsolidation.APrioriDeltaProvider;
-import com.evolveum.midpoint.prism.delta.ItemDelta;
-import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.schema.result.OperationResult;
+import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.util.logging.Trace;
 import com.evolveum.midpoint.util.logging.TraceManager;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+import com.evolveum.prism.xml.ns._public.types_3.ProtectedStringType;
 
 /**
  * Evaluation of inbound mappings from all projections in given lens context. This is the "full mode".
@@ -94,6 +92,19 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
                     LOGGER.trace("Skipping processing of inbound expressions for projection {} because is is gone",
                             lazy(projectionContext::getHumanReadableName));
                     result.recordNotApplicable("projection is gone");
+                    continue;
+                }
+                // Normally, contexts whose shadows are deleted disappear in the wave following their deletion (as part of
+                // removing rotten contexts by the context loader; the key is that their linkRef are deleted or marked as
+                // "related"). However, there may be situations when the deletion is attempted but not executed
+                // because of the resource unavailability. The result (before this code was created) was that
+                // the inbound mappings were executed, created a difference in behavior - comparing to the case
+                // in which the deletion is executed successfully. The shadow caching uncovered this problem, as the
+                // inbounds no longer require a load-from-resource operation.
+                if (projectionContext.isDelete() && projectionContext.isCompleted()) {
+                    LOGGER.trace("Skipping processing of inbound expressions for projection {} because is is deleted and completed",
+                            lazy(projectionContext::getHumanReadableName));
+                    result.recordNotApplicable("projection is deleted and completed");
                     continue;
                 }
                 if (!projectionContext.isCanProject()) {
@@ -141,58 +152,38 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
 
     /**
      * Computes the source data (object + delta) for given projection context.
-     *
-     * TODO revise this method
      */
-    private static InboundSourceData getInboundSourceData(@NotNull LensProjectionContext projectionContext)
-            throws SchemaException, ConfigurationException {
+    private static InboundSourceData getInboundSourceData(@NotNull LensProjectionContext projectionContext) {
         var currentShadow = projectionContext.getObjectCurrent();
-        var definition = projectionContext.getCompositeObjectDefinitionRequired();
 
         int wave = projectionContext.getLensContext().getProjectionWave();
 
         if (wave == 0) {
             return InboundSourceData.forShadow(
-                    currentShadow, // TODO reconsider old vs new here
-                    currentShadow,
+                    currentShadow, // Current is OK here, as this is the state "at the beginning".
+                    currentShadow, // After we try to derive deltas from the cached shadows, this code will change.
                     projectionContext.getSyncDelta(),
-                    definition);
-        }
-        if (wave == projectionContext.getWave() + 1) {
+                    false);
+        } else if (wave == projectionContext.getWave() + 1) {
             // We are in the wave that follows right after this projection context was projected/executed in.
             // So, we would like to use the delta that was executed in that wave.
-            if (projectionContext.getLensContext().isLegacyPreview()) {
-                // ... unless we are in legacy preview, where are no executions. So we must take what was provided + computed.
-                return InboundSourceData.forShadow(
-                        currentShadow, // TODO reconsider old vs new here
-                        currentShadow,
-                        projectionContext.getSummaryDelta(),
-                        definition);
+            var odos = projectionContext.getExecutedDeltas(projectionContext.getWave());
+            if (odos.isEmpty()) {
+                return InboundSourceData.forShadowWithoutDelta(currentShadow);
             } else {
-                var odos = projectionContext.getExecutedDeltas(projectionContext.getWave());
-                if (odos.isEmpty()) {
-                    return InboundSourceData.forShadow(
-                            currentShadow,
-                            currentShadow,
-                            null,
-                            definition);
-                }
                 // Normally, here should be only one delta. But sometimes the waves are repeated.
                 // So, let's take the last one.
                 var odo = odos.get(odos.size() - 1);
                 var baseObject = odo.getBaseObject(); // should be non-null, except for ADD delta
                 return InboundSourceData.forShadow(
-                        asPrismObject(baseObject),
+                        asPrismObject(baseObject), // Maybe we should take the base object from the first odo? Not sure.
                         currentShadow,
                         odo.getObjectDelta(),
-                        definition);
+                        true);
             }
+        } else {
+            return InboundSourceData.forShadowWithoutDelta(currentShadow);
         }
-        return InboundSourceData.forShadow(
-                currentShadow,
-                currentShadow,
-                null,
-                definition);
     }
 
     @Override
@@ -236,7 +227,7 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
         return lensContext;
     }
 
-    class SpecialInboundsEvaluatorImpl implements SingleShadowInboundsPreparation.SpecialInboundsEvaluator {
+    private class SpecialInboundsEvaluatorImpl implements SingleShadowInboundsPreparation.SpecialInboundsEvaluator {
 
         @NotNull private final FullInboundsSource inboundsSource;
         @NotNull private final FullInboundsTarget<F> inboundsTarget;
@@ -258,12 +249,11 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
         public void evaluateSpecialInbounds(OperationResult result)
                 throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
                 ConfigurationException, ObjectNotFoundException {
-            // TODO how exactly can be the password cached? Normally it's hashed, and that means it is not usable for inbounds.
             var passwordValueLoaded = projectionContext.isPasswordValueLoaded();
             var activationLoaded = projectionContext.isActivationLoaded();
             // TODO convert to mapping creation requests
             evaluateSpecialInbounds( // [EP:M:IM] DONE, obviously belonging to the resource
-                    inboundsSource.getInboundDefinition().getPasswordInbound(),
+                    inboundsSource.getInboundProcessingDefinition().getPasswordInboundMappings(),
                     SchemaConstants.PATH_PASSWORD_VALUE, SchemaConstants.PATH_PASSWORD_VALUE,
                     passwordValueLoaded,
                     result);
@@ -336,27 +326,24 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
                             throw new SystemException(message);
                         }
 
-                        ItemDelta<PrismPropertyValue<?>, PrismPropertyDefinition<?>> specialAttributeDelta;
-                        if (inboundsSource.getAPrioriDelta() != null) {
-                            specialAttributeDelta = inboundsSource.getAPrioriDelta().findItemDelta(sourcePath);
-                        } else {
-                            specialAttributeDelta = null;
-                        }
                         ItemDeltaItem<PrismPropertyValue<?>, PrismPropertyDefinition<?>> sourceIdi =
                                 projectionContext.getObjectDeltaObject().findIdi(sourcePath);
-                        if (specialAttributeDelta == null) {
-                            specialAttributeDelta = sourceIdi.getDelta();
-                        }
-                        Source<PrismPropertyValue<?>, PrismPropertyDefinition<?>> source = new Source<>(
-                                sourceIdi.getItemOld(), specialAttributeDelta, sourceIdi.getItemOld(),
+                        var itemDefinition = sourceIdi.getDefinition(); // maybe there's a simpler way to get the definition
+
+                        var itemOld = inboundsSource.getSourceData().getItemOld(sourcePath);
+                        var itemDelta = inboundsSource.getSourceData().getEffectiveItemDelta(sourcePath);
+                        var source = new Source<>(
+                                itemOld, itemDelta, null,
                                 ExpressionConstants.VAR_INPUT_QNAME,
-                                sourceIdi.getDefinition());
+                                itemDefinition);
+                        source.recompute();
+
                         builder.defaultSource(source)
                                 .addVariableDefinition(ExpressionConstants.VAR_USER, focus, UserType.class)
                                 .addVariableDefinition(ExpressionConstants.VAR_FOCUS, focus, FocusType.class)
                                 .addAliasRegistration(ExpressionConstants.VAR_USER, ExpressionConstants.VAR_FOCUS);
 
-                        PrismObject<ShadowType> account = this.inboundsSource.getSourceData().getShadowIfPresent();
+                        PrismObject<ShadowType> account = this.inboundsSource.getSourceData().getShadowVariableValue();
                         builder.addVariableDefinition(ExpressionConstants.VAR_ACCOUNT, account, ShadowType.class)
                                 .addVariableDefinition(ExpressionConstants.VAR_SHADOW, account, ShadowType.class)
                                 .addVariableDefinition(ExpressionConstants.VAR_PROJECTION, account, ShadowType.class)
@@ -369,7 +356,8 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
                                 .implicitTargetPath(targetPath)
                                 .originType(OriginType.INBOUND)
                                 .originObject(this.projectionContext.getResource())
-                                .mappingSpecification(inboundsSource.createMappingSpec(builder.getMappingName()));
+                                .mappingSpecification(
+                                        inboundsSource.createMappingSpec(builder.getMappingName(), itemDefinition));
 
                         return builder;
                     };
@@ -383,10 +371,12 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
                         }
 
                         PrismObjectDefinition<F> focusDefinition = lensContext.getFocusContext().getObjectDefinition();
+                        @SuppressWarnings("rawtypes")
                         PrismProperty mResult = focusDefinition.findPropertyDefinition(targetPath).instantiate();
                         //noinspection unchecked
                         mResult.addAll(PrismValueCollectionsUtil.cloneCollection(outputTriple.getNonNegativeValues()));
 
+                        @SuppressWarnings("rawtypes")
                         PrismProperty targetPropertyNew = focus.asPrismObject().findOrCreateProperty(targetPath);
                         PropertyDelta<?> delta;
                         if (ProtectedStringType.COMPLEX_TYPE.equals(targetPropertyNew.getDefinition().getTypeName())) {
@@ -447,9 +437,7 @@ public class FullInboundsProcessing<F extends FocusType> extends AbstractInbound
         }
 
         private List<MappingType> getActivationInbound(ItemName itemName) {
-            ResourceBidirectionalMappingType biDirMapping =
-                    inboundsSource.getInboundDefinition().getActivationBidirectionalMappingType(itemName);
-            return biDirMapping != null ? biDirMapping.getInbound() : Collections.emptyList();
+            return inboundsSource.getInboundProcessingDefinition().getActivationInboundMappings(itemName);
         }
     }
 }

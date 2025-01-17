@@ -231,7 +231,8 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
         } finally {
             opResult.close();
         }
-        if (result == null || result.get(root.fullObject) == null) {
+        // USed to be result.get(root.fullObject) == null (with excludes it is allowed to have fullObject == null
+        if (result == null ) {
             throw new ObjectNotFoundException(rootMapping.schemaType(), oid.toString(), isAllowNotFound(options));
         }
 
@@ -662,6 +663,11 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
             boolean reindex = updateContext.reindexNeeded() || options.isForceReindex();
             // Only reindex if mapping supports reindex (most mappings, except simulation result)
             reindex = reindex && updateContext.mapping().isReindexSupported();
+            // FIXME: If reindex needed is detected and this is partial update (without full object)
+
+
+            // object needs to be reloaded.
+
             if (reindex) {
                 // UpdateTables is false, we want only to process modifications on fullObject
                 // do not modify nested items.
@@ -726,7 +732,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
         Collection<SelectorOptions<GetOperationOptions>> getOptions =
                 rootMapping.updateGetOptions(
                         RepoModifyOptions.isForceReindex(options) ? GET_FOR_REINDEX_OPTIONS : GET_FOR_UPDATE_OPTIONS,
-                        modifications);
+                        modifications, RepoModifyOptions.isForceReindex(options));
 
         return prepareUpdateContext(jdbcSession, schemaType, oid, getOptions, options);
     }
@@ -757,7 +763,8 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
         rootRow.objectType = MObjectType.fromSchemaType(mapped.schemaObject.getClass());
         // we don't care about full object in row
 
-        return new RootUpdateContext<>(sqlRepoContext, jdbcSession, mapped.schemaObject, rootRow);
+        var skipFullObject = SqaleUtils.isWithoutFullObject(mapped.schemaObject);
+        return new RootUpdateContext<>(sqlRepoContext, jdbcSession, mapped.schemaObject, rootRow, skipFullObject);
     }
 
     private void checkModifications(@NotNull Collection<? extends ItemDelta<?, ?>> modifications) {
@@ -1090,6 +1097,19 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
                 throw new RepositoryException("searchObjectsIterative() does not support ordering"
                         + " by multiple paths (yet): " + providedOrdering);
             }
+            if (providedOrdering != null && providedOrdering.size() == 1) {
+                var instruction = providedOrdering.get(0);
+                if (OrderDirection.ASCENDING.equals(instruction.getDirection())
+                        && instruction.getOrderBy() != null
+                        && instruction.getOrderBy().size() == 1
+                        && ItemPath.isIdentifier(instruction.getOrderBy().first())) {
+                    // If provided ordering is OID ascending, we can safely ignore it, since
+                    // built-in ordering is OID ascending.
+                    providedOrdering = null;
+                }
+            }
+
+
 
             ObjectQuery pagedQuery = prismContext().queryFactory().createQuery();
             ObjectPaging paging = prismContext().queryFactory().createPaging();
@@ -1106,7 +1126,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
             pagedQuery.setPaging(paging);
 
             int pageSize = Math.min(
-                    repositoryConfiguration().getIterativeSearchByPagingBatchSize(),
+                    getIterationPageSize(options),
                     defaultIfNull(maxSize, Integer.MAX_VALUE));
             pagedQuery.getPaging().setMaxSize(pageSize);
             pagedQuery.getPaging().setOffset(offset);
@@ -1207,6 +1227,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
             S_ConditionEntry filter = prismContext()
                     .queryFor(lastProcessedObject.getCompileTimeClass())
                     .item(orderByPath);
+
             Item<PrismValue, ItemDefinition<?>> item = lastProcessedObject.findItem(orderByPath);
             if (item.size() > 1) {
                 throw new IllegalArgumentException(
@@ -1223,10 +1244,8 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
                 Also, audit version does not require polystring treatment.
                 Finally, this works for a single provided ordering, but not for multiple (unsupported commented code lower).
                  */
-                boolean isPolyString = QNameUtil.match(
-                        PolyStringType.COMPLEX_TYPE, item.getDefinition().getTypeName());
                 Object realValue = item.getRealValue();
-                if (isPolyString) {
+                if (realValue instanceof PolyString) {
                     // We need to use matchingOrig for polystring, see MID-7860
                     if (asc) {
                         return filter.gt(realValue).matchingOrig().or()
@@ -1653,9 +1672,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
 
             pagedQuery.setPaging(paging);
 
-            int pageSize = Math.min(
-                    repositoryConfiguration().getIterativeSearchByPagingBatchSize(),
-                    defaultIfNull(maxSize, Integer.MAX_VALUE));
+            int pageSize = Math.min(getIterationPageSize(options), defaultIfNull(maxSize, Integer.MAX_VALUE));
             pagedQuery.getPaging().setMaxSize(pageSize);
             pagedQuery.getPaging().setOffset(offset);
 
@@ -1710,6 +1727,19 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
             long opHandle = registerOperationStart(OP_SEARCH_CONTAINERS_ITERATIVE, type);
             registerOperationFinish(opHandle);
         }
+    }
+
+    public Integer getIterationPageSize(Collection<SelectorOptions<GetOperationOptions>> options) {
+        if (options != null) {
+            for (var option : options) {
+                if (option.isRoot() && option.getOptions() != null) {
+                    if (option.getOptions().getIterationPageSize() != null) {
+                        return option.getOptions().getIterationPageSize();
+                    }
+                }
+            }
+        }
+        return repositoryConfiguration().getIterativeSearchByPagingBatchSize();
     }
 
     /**
@@ -2042,7 +2072,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
 
         try (JdbcSession jdbcSession = sqlRepoContext.newJdbcSession().startTransaction()) {
             RootUpdateContext<SequenceType, QObject<MObject>, MObject> updateContext =
-                    prepareUpdateContext(jdbcSession, SequenceType.class, oid);
+                    prepareUpdateContext(jdbcSession, SequenceType.class, oid, Collections.emptyList(), RepoModifyOptions.createForceReindex());
             SequenceType sequence = updateContext.getPrismObject().asObjectable();
 
             logger.trace("OBJECT before:\n{}", sequence.debugDumpLazily());
@@ -2096,7 +2126,7 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
             throws SchemaException, ObjectNotFoundException, RepositoryException {
         try (JdbcSession jdbcSession = sqlRepoContext.newJdbcSession().startTransaction()) {
             RootUpdateContext<SequenceType, QObject<MObject>, MObject> updateContext =
-                    prepareUpdateContext(jdbcSession, SequenceType.class, oid);
+                    prepareUpdateContext(jdbcSession, SequenceType.class, oid, Collections.emptyList(), RepoModifyOptions.createForceReindex());
             SequenceType sequence = updateContext.getPrismObject().asObjectable();
 
             logger.trace("OBJECT before:\n{}", sequence.debugDumpLazily());

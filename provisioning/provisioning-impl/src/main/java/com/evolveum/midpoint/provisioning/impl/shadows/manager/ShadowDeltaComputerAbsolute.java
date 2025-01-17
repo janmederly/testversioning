@@ -9,18 +9,26 @@ package com.evolveum.midpoint.provisioning.impl.shadows.manager;
 
 import static com.evolveum.midpoint.provisioning.impl.shadows.manager.ShadowComputerUtil.*;
 import static com.evolveum.midpoint.provisioning.impl.shadows.manager.ShadowManagerMiscUtil.determinePrimaryIdentifierValue;
+import static com.evolveum.midpoint.schema.constants.SchemaConstants.PATH_PASSWORD;
+import static com.evolveum.midpoint.schema.constants.SchemaConstants.PATH_PASSWORD_VALUE;
 import static com.evolveum.midpoint.util.MiscUtil.argCheck;
 
 import java.util.*;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.prism.crypto.EncryptionException;
 import com.evolveum.midpoint.provisioning.impl.RepoShadowModifications;
 
 import com.evolveum.midpoint.provisioning.impl.shadows.RepoShadowWithState;
+import com.evolveum.midpoint.provisioning.util.ShadowItemsToReturnProvider;
 import com.evolveum.midpoint.repo.common.ObjectMarkHelper;
 import com.evolveum.midpoint.repo.common.ObjectOperationPolicyHelper.EffectiveMarksAndPolicies;
 
+import com.evolveum.midpoint.schema.util.ShadowUtil;
 import com.evolveum.midpoint.util.QNameUtil;
+
+import com.evolveum.midpoint.xml.ns._public.common.common_3.PasswordType;
+import com.evolveum.prism.xml.ns._public.types_3.ProtectedStringType;
 
 import com.google.common.base.Preconditions;
 import org.jetbrains.annotations.NotNull;
@@ -126,18 +134,18 @@ class ShadowDeltaComputerAbsolute {
             @NotNull ResourceObjectShadow resourceObject,
             @Nullable ObjectDelta<ShadowType> resourceObjectDelta,
             @NotNull EffectiveMarksAndPolicies effectiveMarksAndPolicies,
-            boolean fromResource)
-            throws SchemaException, ConfigurationException {
+            boolean fromResource, OperationResult result)
+            throws SchemaException, ConfigurationException, EncryptionException {
         var computer = new ShadowDeltaComputerAbsolute(
                 ctx, repoShadow, resourceObject, resourceObjectDelta, effectiveMarksAndPolicies, fromResource);
-        return computer.execute();
+        return computer.execute(result);
     }
 
     /**
      * Objects are NOT updated. Only {@link #computedModifications} is created.
      */
-    private @NotNull RepoShadowModifications execute()
-            throws SchemaException, ConfigurationException {
+    private @NotNull RepoShadowModifications execute(OperationResult result)
+            throws SchemaException, ConfigurationException, EncryptionException {
 
         // Note: these updateXXX method work by adding respective deltas (if needed) to the computedShadowDelta
         // They do not change repoShadow nor resourceObject.
@@ -155,13 +163,10 @@ class ShadowDeltaComputerAbsolute {
         }
 
         if (fromResource) { // TODO reconsider this
-            if (ctx.getObjectDefinitionRequired().isActivationCached()) {
-                updateCachedActivation();
-            }
-            if (ctx.getObjectDefinitionRequired().areCredentialsCached()) {
-                // FIXME update password if it happened to be present in the data
-            }
-            if (ctx.getObjectDefinitionRequired().isCachingEnabled()) {
+            var definition = ctx.getObjectDefinitionRequired();
+            updateCachedActivation(definition.isActivationCached());
+            updateCachedCredentials(definition.areCredentialsCached(), definition.areCredentialsCachedLegacy(), result);
+            if (definition.isCachingEnabled()) {
                 updateCachingMetadata(incompleteCacheableItems);
             } else {
                 clearCachingMetadata();
@@ -196,13 +201,20 @@ class ShadowDeltaComputerAbsolute {
         computedModifications.add(auxOcDelta);
     }
 
+    /**
+     * The `exists` flag is set in the resource object. We want to update it in the repo shadow - if needed.
+     *
+     * However, we want to avoid updating the shadow in quantum (GESTATING, CORPSE) states, as this existence may be just
+     * a quantum illusion. For these cases, the EXISTS flag is updated in `ShadowRefreshOperation#refreshShadowAsyncStatus method`
+     * (for ADD operation) and at various other places, see e.g. `ShadowUpdater#markShadowTombstone` & `#markShadowExists`.
+     */
     private void updateExistsFlag() throws SchemaException {
-        // Resource object obviously exists in this case. However, we do not want to mess with isExists flag in
-        // GESTATING nor CORPSE state, as this existence may be just a quantum illusion.
-        if (!repoShadow.isInQuantumState()) {
+        var existingValue = repoShadow.getBean().isExists();
+        var desiredValue = resourceObject.doesExist();
+        if (!Objects.equals(existingValue, desiredValue) && !repoShadow.isInQuantumState()) {
             computedModifications.add(
                     PrismContext.get().deltaFor(ShadowType.class)
-                            .item(ShadowType.F_EXISTS).replace(resourceObject.doesExist())
+                            .item(ShadowType.F_EXISTS).replace(desiredValue)
                             .asItemDelta());
         }
     }
@@ -244,17 +256,102 @@ class ShadowDeltaComputerAbsolute {
         }
     }
 
-    private void updateCachedActivation() {
-        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_ADMINISTRATIVE_STATUS);
-        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_VALID_FROM);
-        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_VALID_TO);
-        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_LOCKOUT_STATUS);
+    /**
+     * Limited to passwords for now.
+     *
+     * See https://docs.evolveum.com/midpoint/devel/design/password-caching-4.9.1/.
+     *
+     * Currently, we expect the password is always returned (if it's readable).
+     * See {@link ShadowItemsToReturnProvider} and MID-10160.
+     */
+    private void updateCachedCredentials(boolean cached, boolean cachedLegacy, OperationResult result)
+            throws SchemaException, EncryptionException {
+
+        if (cachedLegacy) {
+            return; // This is the legacy behavior: NOT updating the shadow regarding credentials
+        }
+
+        var currentProperty = ShadowUtil.getPasswordValueProperty(resourceObject.getBean());
+
+        // Case 0: not cached
+        if (!cached) {
+            deleteCachedPassword();
+            return;
+        }
+
+        // Case 1: absolutely empty
+        if (currentProperty == null
+                || currentProperty.hasNoValues() && !currentProperty.isIncomplete()) {
+            if (ctx.isPasswordReadable()) {
+                deleteCachedPassword();
+            } else {
+                // Password is not readable. We will cache it only on writing (when written by midPoint);
+                // we will NOT erase it on reading (when we don't get it back from the resource).
+            }
+            return;
+        }
+
+        // Case 2: incomplete
+        if (currentProperty.hasNoValues()) {
+            assert currentProperty.isIncomplete();
+            var oldProperty = ShadowUtil.getPasswordValueProperty(repoShadow.getBean());
+            if (oldProperty != null && oldProperty.hasAnyValue()) {
+                // Any value is as good as "incomplete=true". We cannot determine the real value (as it is hashed).
+                // The only difference is that the value may be outdated, if it was changed on the resource,
+                // meaning that the comparison (regarding prohibited values) may provide wrong results.
+                // But this situation is exactly the same as before 4.9 (when cached passwords were not updated
+                // on resource read at all), so we are not making it worse.
+            } else if (oldProperty == null || !oldProperty.isIncomplete()) {
+                // We need to replace the property in repo with zero-values, incomplete one.
+                // Unfortunately, this cannot be done by a simple delta. We have to replace the whole password container.
+                // BEWARE: Make sure we don't update other parts of this container elsewhere; deltas would get overlapping.
+                var passwordClone = resourceObject.getBean().getCredentials().getPassword().clone();
+                passwordClone.asPrismContainerValue().removeProperty(PasswordType.F_VALUE);
+                ShadowUtil.setPasswordIncomplete(passwordClone);
+                computedModifications.add(
+                        PrismContext.get().deltaFor(ShadowType.class)
+                                .item(PATH_PASSWORD).replace(passwordClone)
+                                .asItemDelta());
+            } else {
+                // Everything is correct (zero-values, incomplete property exists), no need to issue any deltas.
+            }
+            return;
+        }
+
+        // Case 3: regular (known) value
+        var value = currentProperty.getRealValue(ProtectedStringType.class); // fails if there are multiple values
+        if (value != null && value.canGetCleartext()) {
+            var credentialsPolicy =
+                    b.securityPolicyFinder.locateResourceObjectCredentialsPolicy(ctx.getObjectDefinitionRequired(), result);
+            var oldValue = ShadowUtil.getPasswordValue(repoShadow.getBean());
+            computedModifications.add(
+                    b.credentialsStorageManager.createShadowPasswordDelta(credentialsPolicy, oldValue, value));
+        } else {
+            LOGGER.warn("Empty or non-clear-retrievable password in {}, ignoring: {} (context: {})", resourceObject, value, ctx);
+        }
     }
 
-    private <T> void updatePropertyIfNeeded(ItemPath itemPath) {
-        PrismProperty<T> currentProperty = resourceObject.getPrismObject().findProperty(itemPath);
-        PrismProperty<T> oldProperty = repoShadow.getPrismObject().findProperty(itemPath);
-        PropertyDelta<T> itemDelta = ItemUtil.diff(oldProperty, currentProperty);
+    private void deleteCachedPassword() throws SchemaException {
+        var oldProperty = ShadowUtil.getPasswordValueProperty(repoShadow.getBean());
+        if (oldProperty != null) {
+            computedModifications.add(
+                    PrismContext.get().deltaFor(ShadowType.class)
+                            .item(PATH_PASSWORD_VALUE).replace()
+                            .asItemDelta());
+        }
+    }
+
+    private void updateCachedActivation(boolean cached) {
+        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_ADMINISTRATIVE_STATUS, cached);
+        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_VALID_FROM, cached);
+        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_VALID_TO, cached);
+        updatePropertyIfNeeded(SchemaConstants.PATH_ACTIVATION_LOCKOUT_STATUS, cached);
+    }
+
+    private <T> void updatePropertyIfNeeded(ItemPath itemPath, boolean cached) {
+        PrismProperty<T> toBe = cached ? resourceObject.getPrismObject().findProperty(itemPath) : null;
+        PrismProperty<T> asIs = repoShadow.getPrismObject().findProperty(itemPath);
+        PropertyDelta<T> itemDelta = ItemUtil.diff(asIs, toBe);
         if (itemDelta != null && !itemDelta.isEmpty()) {
             computedModifications.add(itemDelta);
         }
@@ -390,38 +487,30 @@ class ShadowDeltaComputerAbsolute {
             return;
         }
 
-        if (MiscUtil.unorderedCollectionEquals(oldRepoProp.getRealValues(), expectedRepoPropRealValues)) {
+        PrismProperty<N> expectedRepoAttr = expectedRepoPropDef.instantiateFromUniqueRealValues(expectedRepoPropRealValues);
+        //noinspection unchecked
+        PropertyDelta<N> repoAttrDelta = ((PrismProperty<N>) oldRepoProp).diff(expectedRepoAttr);
+        if (repoAttrDelta == null || repoAttrDelta.isEmpty()) {
             LOGGER.trace("Not updating property {} because it is up-to-date in repo", attrDef.getItemName());
-            return;
-        }
-
-        if (attrDef.isSingleValue()) {
+        } else if (attrDef.isSingleValue()) {
             replaceRepoAttribute(
                     resourceObjectAttribute, expectedRepoPropRealValues, "the (single) property value is outdated");
         } else {
-            updateMultiValuedSimpleRepoAttribute(
-                    oldRepoProp, resourceObjectAttribute, expectedRepoPropDef, expectedRepoPropRealValues);
+            updateMultiValuedSimpleRepoAttribute(repoAttrDelta, resourceObjectAttribute, expectedRepoPropDef);
         }
     }
 
     private <T, N> void updateMultiValuedSimpleRepoAttribute(
-            @NotNull PrismProperty<?> oldRepoAttr,
+            @NotNull PropertyDelta<N> repoAttrDelta,
             @NotNull ShadowSimpleAttribute<T> resourceObjectAttribute,
-            @NotNull NormalizationAwareResourceAttributeDefinition<N> repoAttrDef,
-            @NotNull List<N> expectedRepoRealValues) {
-        PrismProperty<N> expectedRepoAttr = repoAttrDef.instantiateFromUniqueRealValues(expectedRepoRealValues);
-        //noinspection unchecked
-        PropertyDelta<N> repoAttrDelta = ((PrismProperty<N>) oldRepoAttr).diff(expectedRepoAttr);
-        if (repoAttrDelta != null && !repoAttrDelta.isEmpty()) {
-            repoAttrDelta.setParentPath(ShadowType.F_ATTRIBUTES);
-            LOGGER.trace("Going to update the new attribute {} in repo shadow because it's outdated", repoAttrDef.getItemName());
-            // The repo is update with a nice, relative delta. We need not bother with computing such delta
-            // for the in-memory update, as it is efficient enough also for "replace" version (hopefully)
-            PropertyDelta<T> attrDelta = resourceObjectAttribute.createReplaceDelta();
-            computedModifications.add(attrDelta, repoAttrDelta);
-        } else {
-            throw new IllegalStateException("Different content but non-empty delta?");
-        }
+            @NotNull NormalizationAwareResourceAttributeDefinition<N> repoAttrDef) throws SchemaException {
+        repoAttrDelta.applyDefinition(repoAttrDef, true); // e.g. the indexed flag should be updated there
+        repoAttrDelta.setParentPath(ShadowType.F_ATTRIBUTES);
+        LOGGER.trace("Going to update the new attribute {} in repo shadow because it's outdated", repoAttrDef.getItemName());
+        // The repo is update with a nice, relative delta. We need not bother with computing such delta
+        // for the in-memory update, as it is efficient enough also for "replace" version (hopefully)
+        PropertyDelta<T> attrDelta = resourceObjectAttribute.createReplaceDelta();
+        computedModifications.add(attrDelta, repoAttrDelta);
     }
     //endregion
 
@@ -430,7 +519,7 @@ class ShadowDeltaComputerAbsolute {
             throws SchemaException {
         ShadowReferenceAttributeDefinition attrDef = referenceAttribute.getDefinitionRequired();
         List<ObjectReferenceType> expectedRepoRefRealValues =
-                ShadowComputerUtil.toRepoFormat(ctx, referenceAttribute.getReferenceValues());
+                ShadowComputerUtil.toRepoFormat(ctx, referenceAttribute.getAttributeValues());
 
         var oldRepoRef = rawRepoShadow.getPrismObject().findReference(
                 ShadowType.F_REFERENCE_ATTRIBUTES.append(attrDef.getItemName()));

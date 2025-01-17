@@ -18,6 +18,7 @@ import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.PrettyPrinter;
 import com.evolveum.midpoint.util.QNameUtil;
+import com.evolveum.midpoint.util.annotation.Experimental;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.util.exception.SystemException;
 import com.evolveum.midpoint.util.logging.Trace;
@@ -41,14 +42,12 @@ import org.jetbrains.annotations.VisibleForTesting;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.evolveum.midpoint.schema.constants.SchemaConstants.ICFS_NAME;
-import static com.evolveum.midpoint.schema.constants.SchemaConstants.ICFS_UID;
+import static com.evolveum.midpoint.schema.constants.SchemaConstants.*;
 import static com.evolveum.midpoint.schema.util.ObjectTypeUtil.asObjectable;
 import static com.evolveum.midpoint.schema.util.ObjectTypeUtil.asPrismObject;
 import static com.evolveum.midpoint.util.MiscUtil.*;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.util.Objects.*;
 
 /**
  * Methods that would belong to the {@link ShadowType} class but cannot go there because of JAXB.
@@ -256,7 +255,7 @@ public class ShadowUtil {
                 .getObjectClassDefinition();
     }
 
-    /** The shadow must have the attributes container and a definition. */
+    /** The definition is derived either from attributes container or from the prism definition (must not be raw). */
     public static @NotNull ResourceObjectDefinition getResourceObjectDefinition(@NotNull ShadowType shadow) {
         var attributesContainer = getAttributesContainer(shadow);
         if (attributesContainer != null) {
@@ -394,12 +393,22 @@ public class ShadowUtil {
                 .setValue(passwordValue);
     }
 
+    /** Does not touch the actual password value. The client must ensure there is none. */
     public static void setPasswordIncomplete(ShadowType shadow) throws SchemaException {
         PasswordType password = getOrCreateShadowPassword(shadow);
+        setPasswordIncomplete(password);
+    }
+
+    /** Does not touch the actual password value. The client must ensure there is none. */
+    public static void setPasswordIncomplete(@NotNull PasswordType password) throws SchemaException {
         //noinspection unchecked
         PrismContainerValue<PasswordType> passwordContainer = password.asPrismContainerValue();
         PrismProperty<ProtectedStringType> valueProperty = passwordContainer.findOrCreateProperty(PasswordType.F_VALUE);
         valueProperty.setIncomplete(true);
+    }
+
+    public static void removePasswordValueProperty(@NotNull PasswordType password) {
+        password.asPrismContainerValue().removeProperty(PasswordType.F_VALUE);
     }
 
     public static @NotNull PasswordType getOrCreateShadowPassword(ShadowType shadow) {
@@ -423,6 +432,15 @@ public class ShadowUtil {
             shadowType.setActivation(activation);
         }
         return activation;
+    }
+
+    public static ShadowBehaviorType getOrCreateShadowBehavior(ShadowType shadowType) {
+        ShadowBehaviorType behavior = shadowType.getBehavior();
+        if (behavior == null) {
+            behavior = new ShadowBehaviorType();
+            shadowType.setBehavior(behavior);
+        }
+        return behavior;
     }
 
     /**
@@ -879,20 +897,35 @@ public class ShadowUtil {
         }
     }
 
-    // TODO consider removal
+    public static @Nullable PrismProperty<ProtectedStringType> getPasswordValueProperty(@Nullable ShadowType shadow) {
+        if (shadow == null) {
+            return null;
+        } else {
+            return shadow.asPrismObject().findProperty(PATH_PASSWORD_VALUE);
+        }
+    }
+
     public static ProtectedStringType getPasswordValue(ShadowType shadowType) {
         if (shadowType == null) {
             return null;
         }
-        CredentialsType creds = shadowType.getCredentials();
-        if (creds == null) {
+        var credentials = shadowType.getCredentials();
+        if (credentials == null) {
             return null;
         }
-        PasswordType passwd = creds.getPassword();
-        if (passwd == null) {
+        var password = credentials.getPassword();
+        if (password == null) {
             return null;
         }
-        return passwd.getValue();
+        return password.getValue();
+    }
+
+    public static XMLGregorianCalendar getLastLoginTimestampValue(ShadowType shadow) {
+        if (shadow == null || shadow.getBehavior() == null) {
+            return null;
+        }
+
+        return shadow.getBehavior().getLastLoginTimestamp();
     }
 
     public static Object shortDumpShadowLazily(PrismObject<ShadowType> shadow) {
@@ -1234,9 +1267,13 @@ public class ShadowUtil {
         return associationsContainer != null && !(associationsContainer instanceof ShadowAssociationsContainer);
     }
 
-    // FIXME improve this method
-    static boolean equalsByContent(@NotNull ShadowType s1, @NotNull ShadowType s2) {
-
+    /**
+     * Compares the shadows on a high level, with the aim of determining if two target shadows are the same.
+     *
+     * So, when considering using this method in a different content, take care!
+     */
+    @Experimental
+    public static boolean equalsByContent(@NotNull ShadowType s1, @NotNull ShadowType s2) {
         return simpleAttributesEqualRelaxed(getSimpleAttributes(s1), getSimpleAttributes(s2))
                 && MiscUtil.unorderedCollectionEquals(getReferenceAttributes(s1), getReferenceAttributes(s2), ShadowReferenceAttribute.semanticEqualsChecker())
                 && MiscUtil.unorderedCollectionEquals(getAssociations(s1), getAssociations(s2), ShadowAssociation.semanticEqualsChecker())
@@ -1244,12 +1281,17 @@ public class ShadowUtil {
                 && Objects.equals(s1.getCredentials(), s2.getCredentials()); // TODO less strict comparison
     }
 
+    /**
+     * Compares two simple attributes, taking into account the fact that `icfs:uid` and `icfs:name` can be added by the
+     * connector.
+     *
+     * @see ShadowAssociationValue#semanticEqualsChecker()
+     * @see ShadowReferenceAttributeValue#semanticEqualsChecker()
+     */
     public static boolean simpleAttributesEqualRelaxed(
             @NotNull Collection<ShadowSimpleAttribute<?>> attributes1,
             @NotNull Collection<ShadowSimpleAttribute<?>> attributes2) {
 
-        // HACK We ignore icfs:uid and icfs:name, if they are not present at both sides.
-        // The reason is that they may be artificially added by the connector.
         var copy1 = new ArrayList<>(attributes1);
         var copy2 = new ArrayList<>(attributes2);
 
@@ -1311,14 +1353,14 @@ public class ShadowUtil {
             @NotNull ItemName attrName,
             @Nullable PrismObject<ShadowType> shadow,
             @NotNull ResourceObjectDefinition definition,
+            @Nullable ShadowAttributeDefinition<?, ?, ?, ?> attrDefOverride,
             @NotNull XMLGregorianCalendar now) throws SchemaException {
         var shadowStatus = getShadowCachedStatus(shadow, definition, null, now);
         if (!shadowStatus.isFresh()) {
             return shadowStatus;
         } else {
-            var cached = definition
-                    .findAttributeDefinitionRequired(attrName)
-                    .isEffectivelyCached(definition);
+            var attrDef = attrDefOverride != null ? attrDefOverride : definition.findAttributeDefinitionRequired(attrName);
+            var cached = attrDef.isEffectivelyCached(definition);
             return ItemCachedStatus.item(cached);
         }
     }
@@ -1435,5 +1477,14 @@ public class ShadowUtil {
 
     public static Object getDiagInfoLazily(PrismObject<ShadowType> shadow) {
         return DebugUtil.lazy(() -> getDiagInfo(shadow));
+    }
+
+    /** Beware, maintenance mode has PARTIAL_ERROR here. */
+    public static boolean hasFetchError(@NotNull ShadowType shadow) {
+        return ObjectTypeUtil.hasFetchError(shadow.asPrismObject());
+    }
+
+    public static boolean hasAuxiliaryObjectClass(@NotNull ShadowType bean, @NotNull QName name) {
+        return QNameUtil.contains(bean.getAuxiliaryObjectClass(), name);
     }
 }

@@ -92,15 +92,10 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                 return containerWrapperModel;
             }
 
+            @Override
             @SuppressWarnings("rawtypes")
             protected boolean checkMandatory(@NotNull ItemWrapper itemWrapper) {
-                ItemName itemName = itemWrapper.getItemName();
-                if (itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_ROLES_OCCUPANCY)
-                        || itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_USER_OCCUPANCY)
-                        || itemName.equivalent(RoleAnalysisDetectionOptionType.F_FREQUENCY_RANGE)) {
-                    return true;
-                }
-                return itemWrapper.isMandatory();
+                return false;
             }
 
             @Override
@@ -109,14 +104,19 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                 LoadableModel<PrismObjectWrapper<RoleAnalysisSessionType>> objectWrapperModel = getObjectWrapperModel();
                 RoleAnalysisOptionType option = resolveSessionAnalysisOption(objectWrapperModel);
                 RoleAnalysisProcedureType procedureType = option.getAnalysisProcedureType();
-
+                boolean isOutlierDetection = procedureType.equals(RoleAnalysisProcedureType.OUTLIER_DETECTION);
                 return wrapper -> {
                     ItemName itemName = wrapper.getItemName();
-
-                    if (itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_ROLES_OCCUPANCY)
-                            || itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_USER_OCCUPANCY)) {
-
-                        if (procedureType == RoleAnalysisProcedureType.OUTLIER_DETECTION) {
+                    if (!isOutlierDetection) {
+                        if (itemName.equivalent(RoleAnalysisDetectionOptionType.F_FREQUENCY_THRESHOLD)
+                                || itemName.equivalent(RoleAnalysisDetectionOptionType.F_STANDARD_DEVIATION)
+                                || itemName.equivalent(RoleAnalysisDetectionOptionType.F_SENSITIVITY)) {
+                            return ItemVisibility.HIDDEN;
+                        }
+                    } else {
+                        if (itemName.equivalent(RoleAnalysisDetectionOptionType.F_FREQUENCY_RANGE)
+                                || itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_ROLES_OCCUPANCY)
+                                || itemName.equivalent(RoleAnalysisDetectionOptionType.F_MIN_USER_OCCUPANCY)) {
                             return ItemVisibility.HIDDEN;
                         }
                     }
@@ -163,9 +163,7 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                 ItemName itemName = itemWrapper.getItemName();
                 return itemName.equivalent(AbstractAnalysisSessionOptionType.F_MIN_MEMBERS_COUNT)
                         || itemName.equivalent(AbstractAnalysisSessionOptionType.F_MIN_PROPERTIES_OVERLAP)
-                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_SIMILARITY_THRESHOLD)
-                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_ANALYSIS_ATTRIBUTE_SETTING)
-                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_CLUSTERING_ATTRIBUTE_SETTING);
+                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_SIMILARITY_THRESHOLD);
             }
 
             @Contract(pure = true)
@@ -174,9 +172,10 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                 return wrapper -> {
                     ItemName itemName = wrapper.getItemName();
 
-                    if (itemName.equals(AbstractAnalysisSessionOptionType.F_QUERY)
-                            || itemName.equals(AbstractAnalysisSessionOptionType.F_IS_INDIRECT)
-                            || itemName.equals(AbstractAnalysisSessionOptionType.F_PROPERTIES_RANGE)) {
+                    if (itemName.equals(AbstractAnalysisSessionOptionType.F_USER_SEARCH_FILTER)
+                            || itemName.equals(AbstractAnalysisSessionOptionType.F_ROLE_SEARCH_FILTER)
+                            || itemName.equals(AbstractAnalysisSessionOptionType.F_ASSIGNMENT_SEARCH_FILTER)
+                            || itemName.equals(AbstractAnalysisSessionOptionType.F_IS_INDIRECT)) {
                         return ItemVisibility.HIDDEN;
                     }
 
@@ -237,9 +236,7 @@ public class RoleAnalysisReconfigureSessionPopupPanel
             @Override
             protected boolean checkMandatory(@NotNull ItemWrapper itemWrapper) {
                 ItemName itemName = itemWrapper.getItemName();
-                return itemName.equivalent(AbstractAnalysisSessionOptionType.F_QUERY)
-                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_IS_INDIRECT)
-                        || itemName.equivalent(AbstractAnalysisSessionOptionType.F_PROPERTIES_RANGE);
+                return itemName.equivalent(AbstractAnalysisSessionOptionType.F_IS_INDIRECT);
             }
 
             @Contract(pure = true)
@@ -251,7 +248,9 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                             || itemName.equals(AbstractAnalysisSessionOptionType.F_MIN_MEMBERS_COUNT)
                             || itemName.equals(AbstractAnalysisSessionOptionType.F_SIMILARITY_THRESHOLD)
                             || itemName.equals(AbstractAnalysisSessionOptionType.F_CLUSTERING_ATTRIBUTE_SETTING)
-                            || itemName.equals(AbstractAnalysisSessionOptionType.F_ANALYSIS_ATTRIBUTE_SETTING)) {
+                            || itemName.equals(AbstractAnalysisSessionOptionType.F_USER_ANALYSIS_ATTRIBUTE_SETTING)
+                            || itemName.equals(AbstractAnalysisSessionOptionType.F_DETAILED_ANALYSIS)
+                    ) {
                         return ItemVisibility.HIDDEN;
                     }
 
@@ -420,12 +419,12 @@ public class RoleAnalysisReconfigureSessionPopupPanel
                     .getSessionTypeObject(sessionOid, task, result);
 
             if (sessionTypeObject != null) {
-
                 roleAnalysisService.deleteSessionTask(sessionTypeObject.getOid(), task, result);
 
+                TaskType performTask = new TaskType(); //TODO rerun existing or create new?
                 ModelInteractionService modelInteractionService = getPageBase().getModelInteractionService();
                 roleAnalysisService.executeClusteringTask(
-                        modelInteractionService, sessionTypeObject, null, null, task, result, new TaskType());
+                        modelInteractionService, sessionTypeObject, performTask, task, result);
             }
         } catch (Throwable e) {
             LoggingUtils.logException(LOGGER, "Couldn't process clustering", e);

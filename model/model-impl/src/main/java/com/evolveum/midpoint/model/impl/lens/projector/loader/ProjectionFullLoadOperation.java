@@ -146,7 +146,7 @@ class ProjectionFullLoadOperation {
                     projCtx.isFullShadow(), projCtx.debugDumpLazily(1));
 
         } catch (Throwable t) {
-            result.recordFatalError(t);
+            result.recordException(t);
             throw t;
         } finally {
             if (trace != null) {
@@ -155,7 +155,7 @@ class ProjectionFullLoadOperation {
                 }
                 trace.setOutputLensContext(context.toBean(getExportType(trace, result)));
             }
-            result.computeStatusIfUnknown();
+            result.close();
         }
     }
 
@@ -261,6 +261,8 @@ class ProjectionFullLoadOperation {
         };
     }
 
+    // For unknown reason, the password fetching is requested automatically in the provisioning module.
+    // So this method is redundant now. (This may change in the future, though; see MID-10160.)
     private void addRetrievePasswordIfNeeded(Collection<SelectorOptions<GetOperationOptions>> options)
             throws SchemaException, ConfigurationException {
         if (!LensUtil.isPasswordReturnedByDefault(projCtx)

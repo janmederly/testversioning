@@ -159,8 +159,10 @@ public class RoleAnalysisSessionOperationButtonPanel extends InlineOperationalBu
             LOGGER.error("Couldn't execute changes on RoleAnalysisSessionType object: {}", session.getOid(), e);
         }
 
-        roleAnalysisService.executeClusteringTask(getPageBase().getModelInteractionService(), session.asPrismObject(),
-                null, null, task, result, new TaskType());
+        
+        TaskType performTask = new TaskType(); //TODO rerun existing or create new?
+        roleAnalysisService.executeClusteringTask(getPageBase().getModelInteractionService(), session.asPrismObject(), performTask,
+                task, result);
 
         if (result.isWarning()) {
             warn(result.getMessage());

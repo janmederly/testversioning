@@ -19,7 +19,11 @@ import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisChunkMode;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisSortMode;
 import com.evolveum.midpoint.common.mining.utils.values.ZScoreData;
 import com.evolveum.midpoint.prism.PrismObject;
+import com.evolveum.midpoint.schema.constants.ObjectTypes;
+import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
 
 import com.google.common.collect.ListMultimap;
 import org.apache.commons.lang3.mutable.MutableDouble;
@@ -111,6 +115,7 @@ public class OutlierDetectionOutlineClusterModel {
 
         MiningOperationChunk tempMiningOperationChunk = prepareTemporaryOperationChunk(
                 roleAnalysisService,
+                session,
                 tempCluster,
                 task,
                 result);
@@ -139,10 +144,11 @@ public class OutlierDetectionOutlineClusterModel {
         clusterStatistics.setRolesCount(countOfRoles);
 
         RoleAnalysisDetectionOptionType detectionOption = outlineModel.getDetectionOption();
-        RangeType frequencyRange = detectionOption.getFrequencyRange();
+        RangeType standardDeviation = detectionOption.getStandardDeviation();
+        Double frequencyThreshold = detectionOption.getFrequencyThreshold();
         Double sensitivity = detectionOption.getSensitivity();
         this.zScoreData = roleAnalysisService.resolveOutliersZScore(
-                tmpMiningRoleTypeChunks, frequencyRange, sensitivity);
+                tmpMiningRoleTypeChunks, standardDeviation, sensitivity, frequencyThreshold);
         this.similarityThreshold = usedFrequency.doubleValue() * 100;
     }
 
@@ -196,12 +202,19 @@ public class OutlierDetectionOutlineClusterModel {
             @NotNull RoleAnalysisSessionType session,
             @NotNull List<String> clusterMembersOids) {
         RoleAnalysisClusterType cluster = new RoleAnalysisClusterType();
+        cluster.setRoleAnalysisSessionRef(ObjectTypeUtil.createObjectRef(session));
+
+        RoleAnalysisOptionType analysisOption = session.getAnalysisOption();
+        RoleAnalysisProcessModeType processMode = analysisOption.getProcessMode();
+        ObjectTypes objectType = ObjectTypes.USER;
+        if (processMode.equals(RoleAnalysisProcessModeType.ROLE)) {
+            objectType = ObjectTypes.ROLE;
+        }
 
         RoleAnalysisDetectionOptionType detectionOption = prepareDetectionOptions(session);
         cluster.setDetectionOption(detectionOption);
-
-        for (String element : clusterMembersOids) {
-            cluster.getMember().add(new ObjectReferenceType().oid(element).type(UserType.COMPLEX_TYPE));
+        for (String clusterMemberOid : clusterMembersOids) {
+            cluster.getMember().add(ObjectTypeUtil.createObjectRef(clusterMemberOid, objectType));
         }
 
         return cluster;
@@ -210,22 +223,30 @@ public class OutlierDetectionOutlineClusterModel {
     @NotNull
     private MiningOperationChunk prepareTemporaryOperationChunk(
             @NotNull RoleAnalysisService roleAnalysisService,
+            @NotNull RoleAnalysisSessionType session,
             @NotNull RoleAnalysisClusterType tempCluster,
             @NotNull Task task,
             @NotNull OperationResult result) {
+        //Outlier detection is always user-based
         DisplayValueOption displayValueOption = new DisplayValueOption();
         displayValueOption.setProcessMode(RoleAnalysisProcessModeType.USER);
         displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND);
         displayValueOption.setSortMode(RoleAnalysisSortMode.JACCARD);
         displayValueOption.setChunkAction(RoleAnalysisChunkAction.EXPLORE_DETECTION);
 
+        UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
+        SearchFilterType userSearchFilter = userModeOptions.getUserSearchFilter();
+        SearchFilterType roleSearchFilter = userModeOptions.getRoleSearchFilter();
+        SearchFilterType assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
+
         RoleAnalysisSortMode sortMode = displayValueOption.getSortMode();
         if (sortMode == null) {
             displayValueOption.setSortMode(RoleAnalysisSortMode.NONE);
         }
 
-        return roleAnalysisService.prepareBasicChunkStructure(
-                tempCluster, null, displayValueOption, RoleAnalysisProcessModeType.USER, null, result, task);
+        return roleAnalysisService.prepareBasicChunkStructure(tempCluster,
+                userSearchFilter, roleSearchFilter, assignmentSearchFilter,
+                displayValueOption, RoleAnalysisProcessModeType.USER, null, result, task);
     }
 
     private void processClusterAttributeAnalysis(

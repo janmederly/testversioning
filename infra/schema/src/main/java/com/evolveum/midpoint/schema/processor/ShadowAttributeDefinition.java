@@ -12,9 +12,10 @@ import java.util.List;
 import java.util.Objects;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.prism.polystring.PolyString;
 import com.evolveum.midpoint.prism.util.CloneUtil;
 
-import com.evolveum.prism.xml.ns._public.types_3.ProtectedStringType;
+import com.evolveum.midpoint.util.annotation.Experimental;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,20 +23,19 @@ import org.jetbrains.annotations.Nullable;
 import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.schema.TaskExecutionMode;
-import com.evolveum.midpoint.schema.simulation.ExecutionModeProvider;
 import com.evolveum.midpoint.schema.util.SimulationUtil;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
 /**
- * Definition of a {@link ShadowAttribute}.
+ * Definition of a {@link ShadowAttribute}: simple or reference one.
  *
  * . It is based on a "native" part, available from the connector (or from simulated references capability definition);
  * see {@link NativeShadowAttributeDefinition}.
  * . This part is then optionally refined by the configuration in resource `schemaHandling` section.
  *
  * For the time being, it does not extend {@link ItemDefinition} because of typing complications:
- * {@link ShadowAttribute} cannot extend {@link Item} (see its javadoc).
+ * {@link ShadowAttribute} cannot extend {@link Item} (there are clashes on some of the methods).
  *
  * @see ShadowSimpleAttributeDefinition
  * @see ShadowReferenceAttributeDefinition
@@ -53,11 +53,12 @@ public interface ShadowAttributeDefinition<
         PrismItemBasicDefinition,
         PrismItemAccessDefinition,
         PrismItemMiscDefinition,
+        PrismItemStorageDefinition,
         PrismPresentationDefinition,
         ShadowAttributeUcfDefinition,
         ShadowItemLayeredDefinition,
         LayeredDefinition,
-        ResourceObjectInboundDefinition.ItemInboundDefinition,
+        ResourceObjectInboundProcessingDefinition.ItemInboundProcessingDefinition,
         ShadowItemDefinition,
         Definition {
 
@@ -106,6 +107,11 @@ public interface ShadowAttributeDefinition<
             return false;
         }
 
+        var typeClass = getTypeClass();
+        if (PolyString.class.equals(typeClass)) {
+            return false; // MID-10102
+        }
+
         var override = isCached();
         if (override != null) {
             return override;
@@ -133,6 +139,7 @@ public interface ShadowAttributeDefinition<
      * Is this attribute so-called volatility trigger, i.e. may its changes cause changes in other attributes?
      *
      * @see ResourceItemDefinitionType#isVolatilityTrigger()
+     * @see ResourceItemDefinitionType#getVolatility()
      */
     boolean isVolatilityTrigger();
 
@@ -222,24 +229,21 @@ public interface ShadowAttributeDefinition<
      */
     @NotNull List<String> getIntolerantValuePatterns();
 
-    /** TODO */
+    /** @see ResourceItemDefinitionType#getChangeApplicationMode() */
+    @Experimental
     @Nullable ItemChangeApplicationModeType getChangeApplicationMode();
 
-    /** TODO */
+    /** @see ResourceItemDefinitionType#getLifecycleState() */
     @Nullable String getLifecycleState();
 
     @Override
     default boolean isIgnored(LayerType layer) {
-        return ShadowItemLayeredDefinition.super.isIgnored(layer);
+        return ShadowItemDefinition.super.isIgnored(layer);
     }
 
-    /** TODO */
+    /** Is this item visible under given task execution mode (production/development config)? */
     default boolean isVisible(@NotNull TaskExecutionMode taskExecutionMode) {
         return SimulationUtil.isVisible(getLifecycleState(), taskExecutionMode);
-    }
-
-    default boolean isVisible(@NotNull ExecutionModeProvider executionModeProvider) {
-        return SimulationUtil.isVisible(getLifecycleState(), executionModeProvider);
     }
 
     /** Note that attributes must always have static Java type. */
@@ -256,8 +260,6 @@ public interface ShadowAttributeDefinition<
     /** Returns `true` if there are any refinements (like in `schemaHandling`). */
     boolean hasRefinements();
 
-    boolean isIndexOnly();
-
     @NotNull
     SA instantiate() throws SchemaException;
 
@@ -271,13 +273,12 @@ public interface ShadowAttributeDefinition<
      * Assumes that the original item is correctly constructed, i.e. it has no duplicate values.
      */
     default @NotNull SA instantiateFrom(@NotNull Item<?, ?> item) throws SchemaException {
-        //noinspection unchecked
-        SA attribute = instantiateFromRealValues((Collection<RV>) item.getRealValues());
+        SA attribute = instantiateFromRealValues(item.getRealValues());
         attribute.setIncomplete(item.isIncomplete());
         return attribute;
     }
 
-    default @NotNull SA instantiateFromRealValue(@NotNull RV realValue) throws SchemaException {
+    default @NotNull SA instantiateFromRealValue(@NotNull Object realValue) throws SchemaException {
         return instantiateFromRealValues(List.of(realValue));
     }
 
@@ -286,9 +287,9 @@ public interface ShadowAttributeDefinition<
      *
      * Assumes that the values contain no duplicates and no nulls.
      */
-    default @NotNull SA instantiateFromRealValues(@NotNull Collection<RV> realValues) throws SchemaException {
+    default @NotNull SA instantiateFromRealValues(@NotNull Collection<?> realValues) throws SchemaException {
         SA attribute = instantiate();
-        for (RV realValue : realValues) {
+        for (var realValue : realValues) {
             attribute.addValueSkipUniquenessCheck(
                     createPrismValueFromRealValue(
                             CloneUtil.clone(realValue)));
@@ -305,15 +306,26 @@ public interface ShadowAttributeDefinition<
         return ItemPath.create(ShadowType.F_ATTRIBUTES, getItemName());
     }
 
-    /** If `true`, the item does not exist on the resource, but is simulated by midPoint. */
+    /**
+     * If `true`, the item does not exist on the resource, but is simulated by midPoint.
+     * Applies to reference attributes for now.
+     */
     boolean isSimulated();
 
     @NotNull ShadowAttributeDefinition<V, D, RV, SA> clone();
 
-    /**
-     * Provides a debug dump respective to the given layer.
-     *
-     * TODO reconsider this method
-     */
+    /** Provides a debug dump respective to the given layer. */
     String debugDump(int indent, LayerType layer);
+
+    /**
+     * This attribute may get unexpected values when the object is created on the resource.
+     * (Regardless of whether any value is provided by the client. These subtle cases may get distinguished later.)
+     */
+    boolean isVolatileOnAddOperation();
+
+    /**
+     * This attribute may get unexpected values when the object is updated on the resource,
+     * regardless of what attributes are modified and in what way.
+     */
+    boolean isVolatileOnModifyOperation();
 }

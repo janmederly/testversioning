@@ -10,6 +10,7 @@ package com.evolveum.midpoint.web.component.data;
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.evolveum.midpoint.common.mining.objects.analysis.RoleAnalysisAttributeDef;
@@ -29,6 +30,7 @@ import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableCellFillResolver.refreshCells;
 
@@ -49,8 +51,14 @@ public class RoleAnalysisObjectDto implements Serializable {
 
     private RoleAnalysisClusterType cluster;
 
+    //TODO design implement mechanism for marking users and roles (current solution is ugly hack)
     private Set<String> markedUsers = new HashSet<>();
-    SearchFilterType filter;
+    private Set<String> markedRoles = new HashSet<>();
+    private Set<MarkedRelation> markedRelations = new HashSet<>();
+
+    private SearchFilterType userSearchFilter = null;
+    private SearchFilterType roleSearchFilter = null;
+    private SearchFilterType assignmentSearchFilter = null;
 
     public RoleAnalysisObjectDto(RoleAnalysisClusterType cluster, List<DetectedPattern> detectedPatterns, Integer parameterTableSetting, PageBase pageBase) {
         loadObject(cluster, detectedPatterns, parameterTableSetting, pageBase);
@@ -74,6 +82,7 @@ public class RoleAnalysisObjectDto implements Serializable {
             if (procedureType == RoleAnalysisProcedureType.OUTLIER_DETECTION) {
                 this.isOutlierDetection = true;
                 collectMarkedUsers(roleAnalysisService, task, result);
+                collectMarkedRoles(roleAnalysisService, task, result);
             }
             mode = analysisOption.getProcessMode();
             this.isRoleMode = mode.equals(RoleAnalysisProcessModeType.ROLE);
@@ -85,23 +94,27 @@ public class RoleAnalysisObjectDto implements Serializable {
             if (mode.equals(RoleAnalysisProcessModeType.ROLE)) {
                 RoleAnalysisSessionOptionType roleModeOptions = session.getRoleModeOptions();
                 if (roleModeOptions != null) {
-                    this.filter = roleModeOptions.getQuery();
+                    this.userSearchFilter = roleModeOptions.getUserSearchFilter();
+                    this.roleSearchFilter = roleModeOptions.getRoleSearchFilter();
+                    this.assignmentSearchFilter = roleModeOptions.getAssignmentSearchFilter();
                 }
             } else if (mode.equals(RoleAnalysisProcessModeType.USER)) {
                 UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
                 if (userModeOptions != null) {
-                    this.filter = userModeOptions.getQuery();
+                    this.userSearchFilter = userModeOptions.getUserSearchFilter();
+                    this.roleSearchFilter = userModeOptions.getRoleSearchFilter();
+                    this.assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
                 }
             }
 
         }
 
-        this.displayValueOption = loadDispayValueOption(cluster, parameterTableSetting);
+        this.displayValueOption = loadDisplayValueOption(cluster, parameterTableSetting);
 
         //chunk mode
         this.miningOperationChunk = roleAnalysisService.prepareMiningStructure(
                 cluster,
-                filter,
+                userSearchFilter, roleSearchFilter, assignmentSearchFilter,
                 displayValueOption,
                 isRoleMode ? RoleAnalysisProcessModeType.ROLE : RoleAnalysisProcessModeType.USER,
                 detectedPatterns,
@@ -111,13 +124,13 @@ public class RoleAnalysisObjectDto implements Serializable {
 
     }
 
-    private void collectMarkedUsers(RoleAnalysisService roleAnalysisService, Task task, OperationResult result) {
+    private void collectMarkedUsers(@NotNull RoleAnalysisService roleAnalysisService, Task task, OperationResult result) {
         markedUsers = new HashSet<>();
         List<RoleAnalysisOutlierType> searchResultList = roleAnalysisService.findClusterOutliers(
                 cluster, null, task, result);
         if (searchResultList != null && !searchResultList.isEmpty()) {
             for (RoleAnalysisOutlierType outlier : searchResultList) {
-                ObjectReferenceType targetObjectRef = outlier.getTargetObjectRef();
+                ObjectReferenceType targetObjectRef = outlier.getObjectRef();
                 if (targetObjectRef != null && targetObjectRef.getOid() != null) {
                     markedUsers.add(targetObjectRef.getOid());
                 }
@@ -125,25 +138,39 @@ public class RoleAnalysisObjectDto implements Serializable {
         }
     }
 
-    private @NotNull DisplayValueOption loadDispayValueOption(@NotNull RoleAnalysisClusterType cluster, Integer parameterTableSetting) {
-//        RoleAnalysisClusterType cluster = getModelObject().asObjectable();
+    private void collectMarkedRoles(@NotNull RoleAnalysisService roleAnalysisService, Task task, OperationResult result) {
+        if (cluster == null || cluster.getOid() == null) {
+            return;
+        }
+
+        Map<RoleAnalysisOutlierPartitionType, RoleAnalysisOutlierType> clusterTopOutliers = roleAnalysisService
+                .getClusterOutlierPartitionsMap(cluster.getOid(), null, true, null, task, result);
+
+        clusterTopOutliers.keySet().forEach(partition -> partition.getDetectedAnomalyResult().stream()
+                .map(DetectedAnomalyResult::getTargetObjectRef)
+                .filter(ref -> ref != null && ref.getOid() != null)
+                .map(ObjectReferenceType::getOid)
+                .forEach(markedRoles::add));
+    }
+
+    private @NotNull DisplayValueOption loadDisplayValueOption(@NotNull RoleAnalysisClusterType cluster, Integer parameterTableSetting) {
         AnalysisClusterStatisticType clusterStatistics = cluster.getClusterStatistics();
 
-        DisplayValueOption displayValueOption = new DisplayValueOption();
-        displayValueOption.setChunkMode(RoleAnalysisChunkMode.COMPRESS);
+        DisplayValueOption chunkDisplayValueOption = new DisplayValueOption();
+        chunkDisplayValueOption.setChunkMode(RoleAnalysisChunkMode.COMPRESS);
 
-        displayValueOption.setProcessMode(isRoleMode ? RoleAnalysisProcessModeType.ROLE : RoleAnalysisProcessModeType.USER);
+        chunkDisplayValueOption.setProcessMode(isRoleMode ? RoleAnalysisProcessModeType.ROLE : RoleAnalysisProcessModeType.USER);
 
 //        Integer parameterTableSetting = getParameterTableSetting();
         if (parameterTableSetting != null && parameterTableSetting == 1) {
-            displayValueOption.setFullPage(true);
+            chunkDisplayValueOption.setFullPage(true);
         }
 
         Integer rolesCount = clusterStatistics.getRolesCount();
         Integer usersCount = clusterStatistics.getUsersCount();
 
         if (rolesCount == null || usersCount == null) {
-            displayValueOption.setSortMode(RoleAnalysisSortMode.NONE);
+            chunkDisplayValueOption.setSortMode(RoleAnalysisSortMode.NONE);
         } else {
 
             int maxRoles;
@@ -158,24 +185,38 @@ public class RoleAnalysisObjectDto implements Serializable {
             }
             int max = Math.max(rolesCount, usersCount);
 
-            if (max <= 500) {
-                displayValueOption.setSortMode(RoleAnalysisSortMode.JACCARD);
-            } else {
-                displayValueOption.setSortMode(RoleAnalysisSortMode.FREQUENCY);
-            }
+            resolveDefaultSortMode(max, chunkDisplayValueOption);
 
-            if (rolesCount > maxRoles && usersCount > maxUsers) {
-                displayValueOption.setChunkMode(RoleAnalysisChunkMode.COMPRESS);
-            } else if (rolesCount > maxRoles) {
-                displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND_USER);
-            } else if (usersCount > maxUsers) {
-                displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND_ROLE);
-            } else {
-                displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND);
-            }
+            resolveDefaultChunkStructure(rolesCount, maxRoles, usersCount, maxUsers, chunkDisplayValueOption);
         }
 
-        return displayValueOption;
+        return chunkDisplayValueOption;
+    }
+
+    private static void resolveDefaultSortMode(int max, DisplayValueOption displayValueOption) {
+        if (max <= 500) {
+            displayValueOption.setSortMode(RoleAnalysisSortMode.JACCARD);
+        } else {
+            displayValueOption.setSortMode(RoleAnalysisSortMode.FREQUENCY);
+        }
+    }
+
+    private void resolveDefaultChunkStructure(Integer rolesCount, int maxRoles, Integer usersCount, int maxUsers, DisplayValueOption displayValueOption) {
+        RoleAnalysisChunkMode defaultChunkMode = getDefaultChunkMode();
+        if (defaultChunkMode != null) {
+            displayValueOption.setChunkMode(defaultChunkMode);
+            return;
+        }
+
+        if (rolesCount > maxRoles || usersCount > maxUsers) {
+            displayValueOption.setChunkMode(RoleAnalysisChunkMode.COMPRESS);
+//            } else if (rolesCount > maxRoles) {
+//                displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND_USER);
+//            } else if (usersCount > maxUsers) {
+//                displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND_ROLE);
+        } else {
+            displayValueOption.setChunkMode(RoleAnalysisChunkMode.EXPAND);
+        }
     }
 
     public <B extends MiningBaseTypeChunk> List<B> getMainMiningChunk() {
@@ -184,6 +225,10 @@ public class RoleAnalysisObjectDto implements Serializable {
 
     public <A extends MiningBaseTypeChunk> List<A> getAdditionalMiningChunk() {
         return miningOperationChunk.getAdditionalMiningChunk();
+    }
+
+    public @Nullable RoleAnalysisChunkMode getDefaultChunkMode() {
+        return null;
     }
 
     public double getMinFrequency() {
@@ -216,7 +261,7 @@ public class RoleAnalysisObjectDto implements Serializable {
         OperationResult result = task.getResult();
         this.miningOperationChunk = pageBase.getRoleAnalysisService().prepareMiningStructure(
                 cluster,
-                filter,
+                userSearchFilter, roleSearchFilter, assignmentSearchFilter,
                 displayValueOption,
                 isRoleMode ? RoleAnalysisProcessModeType.ROLE : RoleAnalysisProcessModeType.USER,
                 selectedPatterns,
@@ -263,5 +308,20 @@ public class RoleAnalysisObjectDto implements Serializable {
 
     public Set<String> getMarkedUsers() {
         return markedUsers;
+    }
+
+    public Set<String> getMarkedRoles() {
+        return markedRoles;
+    }
+
+    public Set<MarkedRelation> getMarkedRelations() {
+        return markedRelations;
+    }
+
+    public void addMarkedRelation(String userOid, String roleOid,String cssStyle, String cssClass) {
+        markedRelations.add(new MarkedRelation(userOid, roleOid, cssStyle, cssClass));
+    }
+
+    public record MarkedRelation(String userOid, String roleOid,String cssStyle, String cssClass) implements Serializable {
     }
 }

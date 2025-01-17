@@ -9,11 +9,13 @@ package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.wizard;
 import java.io.Serial;
 
 import com.evolveum.midpoint.gui.impl.component.icon.IconCssStyle;
-import com.evolveum.midpoint.util.exception.SystemException;
+import com.evolveum.midpoint.gui.impl.page.admin.task.TaskDetailsModel;
+import com.evolveum.midpoint.web.component.util.VisibleBehaviour;
 
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.TextField;
 import org.apache.wicket.model.IModel;
@@ -25,24 +27,21 @@ import com.evolveum.midpoint.gui.api.GuiStyleConstants;
 import com.evolveum.midpoint.gui.api.component.LabelWithHelpPanel;
 import com.evolveum.midpoint.gui.api.component.form.ToggleCheckBoxPanel;
 import com.evolveum.midpoint.gui.api.page.PageBase;
-import com.evolveum.midpoint.gui.api.prism.wrapper.PrismObjectWrapper;
-import com.evolveum.midpoint.gui.api.prism.wrapper.PrismReferenceWrapper;
 import com.evolveum.midpoint.gui.impl.component.icon.CompositedIconBuilder;
 import com.evolveum.midpoint.gui.impl.component.wizard.AbstractWizardStepPanel;
-import com.evolveum.midpoint.gui.impl.page.admin.assignmentholder.AssignmentHolderDetailsModel;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.tmp.panel.IconWithLabel;
-import com.evolveum.midpoint.prism.Referencable;
-import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.web.component.AjaxCompositedIconSubmitButton;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.RoleAnalysisWebUtils.CLASS_CSS;
 
 public class RoleAnalysisSessionMaintenanceWizardPanel
-        extends AbstractWizardStepPanel<AssignmentHolderDetailsModel<RoleAnalysisSessionType>> {
+        extends AbstractWizardStepPanel<TaskDetailsModel> {
     private static final String ID_TITLE_RETENTION = "title-retention";
     private static final String ID_LABEL_RETENTION = "label-retention";
     private static final String ID_INPUT_RETENTION = "input-retention";
+
+    private static final String ID_PROCESSING_CONTAINER = "processing-container";
     private static final String ID_TITLE_PROCESSING = "title-processing";
     private static final String ID_DESCRIPTION_PROCESSING = "description-processing";
     private static final String ID_REBUILD_PROCESSING = "rebuild-processing";
@@ -51,14 +50,11 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
     private static final String DEFAULT_BUTTON_CSS = "text-left btn btn-default ";
     private static final String COLORED_BUTTON_CSS = "colored-form-primary ";
 
-    private static final String DECOMMISSIONED_MARK_OBJECT_ID = "00000000-0000-0000-0000-000000000801";
-    boolean isRebuild = false;
-    TaskType taskType;
+    boolean isRebuild = true;
     Model<Boolean> isActiveModel = Model.of(false);
 
-    public RoleAnalysisSessionMaintenanceWizardPanel(AssignmentHolderDetailsModel<RoleAnalysisSessionType> model, TaskType taskType) {
+    public RoleAnalysisSessionMaintenanceWizardPanel(TaskDetailsModel model) {
         super(model);
-        this.taskType = taskType;
     }
 
     @Override
@@ -138,6 +134,11 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
 
     private void inputProcessingPart() {
 
+        WebMarkupContainer processingContainer = new WebMarkupContainer(ID_PROCESSING_CONTAINER);
+        processingContainer.setOutputMarkupId(true);
+        processingContainer.add(new VisibleBehaviour(() -> false));
+        add(processingContainer);
+
         IconWithLabel iconWithLabel = new IconWithLabel(ID_TITLE_PROCESSING,
                 createStringResource("RoleAnalysisSessionMaintenanceWizardPanel.data.processing.label")) {
             @Override
@@ -147,19 +148,19 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
         };
         iconWithLabel.setOutputMarkupId(true);
         iconWithLabel.add(AttributeModifier.append(CLASS_CSS, "d-flex align-items-center gap-2 h5"));
-        add(iconWithLabel);
+        processingContainer.add(iconWithLabel);
 
         Label description = new Label(ID_DESCRIPTION_PROCESSING,
                 createStringResource("RoleAnalysisSessionMaintenanceWizardPanel.data.processing.help"));
         description.setOutputMarkupId(true);
         description.add(AttributeModifier.append(CLASS_CSS, "text-gray"));
-        add(description);
+        processingContainer.add(description);
 
-        initDeleteButton();
-        initRebuildButton();
+        initDeleteButton(processingContainer);
+        initRebuildButton(processingContainer);
     }
 
-    private void initRebuildButton() {
+    private void initRebuildButton(WebMarkupContainer processingContainer) {
         CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(GuiStyleConstants.CLASS_REFRESH,
                 IconCssStyle.IN_ROW_STYLE);
         AjaxCompositedIconSubmitButton rebuildButton = new AjaxCompositedIconSubmitButton(ID_REBUILD_PROCESSING,
@@ -189,10 +190,10 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
             rebuildButton.add(AttributeModifier.append(CLASS_CSS, COLORED_BUTTON_CSS));
         }
 
-        add(rebuildButton);
+        processingContainer.add(rebuildButton);
     }
 
-    private void initDeleteButton() {
+    private void initDeleteButton(WebMarkupContainer processingContainer) {
         CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(GuiStyleConstants.CLASS_ICON_TRASH,
                 IconCssStyle.IN_ROW_STYLE);
         AjaxCompositedIconSubmitButton deleteButton = new AjaxCompositedIconSubmitButton(ID_DELETE_PROCESSING,
@@ -222,7 +223,7 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
             deleteButton.add(AttributeModifier.append(CLASS_CSS, COLORED_BUTTON_CSS));
         }
 
-        add(deleteButton);
+        processingContainer.add(deleteButton);
     }
 
     @Override
@@ -234,31 +235,13 @@ public class RoleAnalysisSessionMaintenanceWizardPanel
     private void onSubmitMaintenancePerform() {
         Boolean isActive = isActiveModel.getObject();
         if (isActive.equals(Boolean.TRUE)) {
-            boolean rebuild = isRebuild();
-
-            if (!rebuild) {
-                AssignmentHolderDetailsModel<RoleAnalysisSessionType> detailsModel = getDetailsModel();
-                ObjectReferenceType mark = new ObjectReferenceType().oid(DECOMMISSIONED_MARK_OBJECT_ID)
-                        .type(MarkType.COMPLEX_TYPE)
-                        .description("First run");
-
-                PrismObjectWrapper<RoleAnalysisSessionType> objectWrapper = detailsModel.getObjectWrapper();
-                try {
-                    PrismReferenceWrapper<Referencable> reference = objectWrapper.findReference(ObjectType.F_EFFECTIVE_MARK_REF);
-                    reference.add(mark.asReferenceValue(), getPageBase());
-                } catch (SchemaException e) {
-                    throw new SystemException("Couldn't add reference to the object", e);
-                }
-
-            }
-
             Double modelObject = getRetentionField().getModelObject();
             if (modelObject != null) {
                 int seconds = (int) (modelObject * 60 * 60);
 
                 ScheduleType schedule = new ScheduleType();
                 schedule.setInterval(seconds);
-                taskType.setSchedule(schedule.clone());
+                getDetailsModel().getObjectType().setSchedule(schedule);
             }
 
         }

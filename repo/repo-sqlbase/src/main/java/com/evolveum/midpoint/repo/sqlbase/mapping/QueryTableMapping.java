@@ -6,6 +6,7 @@
  */
 package com.evolveum.midpoint.repo.sqlbase.mapping;
 
+import java.sql.Array;
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -344,7 +345,7 @@ public abstract class QueryTableMapping<S, Q extends FlexibleRelationalPathBase<
 
     public Collection<SelectorOptions<GetOperationOptions>> updateGetOptions(
             Collection<SelectorOptions<GetOperationOptions>> options,
-            @NotNull Collection<? extends ItemDelta<?, ?>> modifications) {
+            @NotNull Collection<? extends ItemDelta<?, ?>> modifications, boolean forceReindex) {
         return options;
     }
 
@@ -356,5 +357,16 @@ public abstract class QueryTableMapping<S, Q extends FlexibleRelationalPathBase<
                 ", schemaType=" + schemaType() +
                 ", queryType=" + queryType() +
                 '}';
+    }
+
+    protected static Path<?>[] paths(Path<?>... path) {
+        return path;
+    }
+
+    protected static Path<?>[] appendPaths(Path<?>[] original, Path<?>... path) {
+        var ret = new ArrayList<Path<?>>();
+        Collections.addAll(ret, original);
+        Collections.addAll(ret, path);
+        return ret.toArray(new Path<?>[original.length + path.length]);
     }
 }

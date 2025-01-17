@@ -7,14 +7,15 @@
 
 package com.evolveum.midpoint.model.impl.mining.algorithm.cluster.action.context;
 
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import javax.xml.namespace.QName;
 
 import com.evolveum.midpoint.common.mining.objects.analysis.cache.AttributeAnalysisCache;
 
-import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
+import com.evolveum.midpoint.common.mining.objects.analysis.cache.ObjectCategorisationCache;
+import com.evolveum.midpoint.model.impl.mining.utils.DebugOutlierDetectionEvaluation;
 
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import org.jetbrains.annotations.NotNull;
 
@@ -34,10 +35,7 @@ import com.evolveum.midpoint.util.logging.Trace;
 import com.evolveum.midpoint.util.logging.TraceManager;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
-import org.jetbrains.annotations.Nullable;
-
-import static com.evolveum.midpoint.model.impl.mining.algorithm.cluster.action.util.ClusteringUtils.getExistingActiveRolesOidsSet;
-import static com.evolveum.midpoint.model.impl.mining.algorithm.cluster.action.util.ClusteringUtils.getRoleBasedRoleToUserMap;
+import static com.evolveum.midpoint.model.impl.mining.RoleAnalysisDataServiceUtils.reverseMap;
 
 /**
  * Clustering action.
@@ -59,6 +57,8 @@ public class ClusteringActionExecutor extends BaseAction {
     private static final Trace LOGGER = TraceManager.getTrace(ClusteringActionExecutor.class);
 
     private final AttributeAnalysisCache attributeAnalysisCache = new AttributeAnalysisCache();
+
+    private final ObjectCategorisationCache objectCategorisationCache = new ObjectCategorisationCache();
 
     private final RoleAnalysisProgressIncrement handler = new RoleAnalysisProgressIncrement("Density Clustering",
             7, this::incrementProgress);
@@ -88,51 +88,14 @@ public class ClusteringActionExecutor extends BaseAction {
         }
 
         RoleAnalysisSessionType session = prismSession.asObjectable();
-        List<ObjectReferenceType> effectiveMarkRef = session.getEffectiveMarkRef();
-        //TODO this is brutal hack. Change it.
-        // Start *
-        boolean isDecomissioned = false;
-
-        if (effectiveMarkRef != null && !effectiveMarkRef.isEmpty()) {
-            for (ObjectReferenceType ref : effectiveMarkRef) {
-                if (ref.getOid().equals(DECOMISSIONED_MARK_OID)) {
-                    String description = ref.getDescription();
-                    if (description != null && description.equals("First run")) {
-                        ObjectReferenceType mark = new ObjectReferenceType().oid(DECOMISSIONED_MARK_OID)
-                                .type(MarkType.COMPLEX_TYPE)
-                                .description("Second run");
-                        roleAnalysisService.replaceSessionMarkRef(prismSession, mark, result, task);
-                    } else {
-                        isDecomissioned = true;
-                    }
-                    break;
-                }
-            }
-        }
-
-        if (isDecomissioned) {
-            Task subTask = task.createSubtask();
-            PrismObject<TaskType> sessionTask = roleAnalysisService.getSessionTask(sessionOid, subTask, result);
-//                roleAnalysisService.stopSessionTask(sessionOid, task1, result);
-//                roleAnalysisService.deleteSessionTask(sessionOid, result);
-//                sessionTask.asObjectable().cleanupAfterCompletion(XmlTypeConverter.createDuration("PT0S"));
-
-            roleAnalysisService.deleteSession(sessionOid, subTask, result);
-            task.setName("Role Analysis Decommissioned");
-            if (sessionTask != null) {
-                roleAnalysisService.deleteSessionTask(sessionTask.asObjectable(), result);
-            }
-            handler.finish();
-            return;
-        }
-        //End *
+        objectCategorisationCache.markExcludedObjects(session);
 
         roleAnalysisService.deleteSessionClustersMembers(prismSession.getOid(), task, result, false);
 
         this.clusterable = new ClusteringBehavioralResolver();
 
         List<PrismObject<RoleAnalysisClusterType>> clusterObjects = clusterable.executeClustering(
-                roleAnalysisService, modelService, session, handler, attributeAnalysisCache, task, result);
+                roleAnalysisService, modelService, session, handler, attributeAnalysisCache, objectCategorisationCache, task, result);
 
         if (!clusterObjects.isEmpty()) {
             importObjects(roleAnalysisService, clusterObjects, session, task, result);
@@ -153,18 +116,15 @@ public class ClusteringActionExecutor extends BaseAction {
         sessionRef.setTargetName(session.getName());
         RoleAnalysisOptionType analysisOption = session.getAnalysisOption();
         int processedObjectCount = 0;
-        SearchFilterType sessionUserQuery;
+
         QName complexType;
         if (analysisOption.getProcessMode().equals(RoleAnalysisProcessModeType.ROLE)) {
-            sessionUserQuery = session.getRoleModeOptions().getQuery();
             complexType = RoleType.COMPLEX_TYPE;
         } else {
-            sessionUserQuery = session.getUserModeOptions().getQuery();
             complexType = UserType.COMPLEX_TYPE;
         }
 
         double meanDensity = 0;
-
         int countOutliers = 0;
 
         handler.enterNewStep("Importing Clusters");
@@ -196,16 +156,13 @@ public class ClusteringActionExecutor extends BaseAction {
 
         }
 
-        ModelService modelService = ModelBeans.get().modelService;
-        ListMultimap<String, String> roleMembersMap = loadRoleMembersMap(modelService, sessionUserQuery, task, result);
-        attributeAnalysisCache.setRoleMemberCache(roleMembersMap);
-
         //TODO not just basic it must be connected to in and out outlier analysis (experimental)
         for (PrismObject<RoleAnalysisClusterType> clusterTypePrismObject : clusters) {
             long startTime = System.currentTimeMillis();
             RoleAnalysisClusterType cluster = clusterTypePrismObject.asObjectable();
             OutlierDetectionActionExecutor detectionExecutionUtil = new OutlierDetectionActionExecutor(roleAnalysisService);
-            detectionExecutionUtil.executeOutlierDetection(cluster, session, analysisOption, attributeAnalysisCache, task, result);
+            detectionExecutionUtil.executeOutlierDetection(
+                    cluster, session, analysisOption, attributeAnalysisCache, objectCategorisationCache, task, result);
             long endTime = System.currentTimeMillis();
             double processingTimeInSeconds = (double) (endTime - startTime) / 1000.0;
             LOGGER.debug("Processing time for outlier detection cluster " + cluster.getName() + ": " + processingTimeInSeconds + " seconds");
@@ -215,27 +172,132 @@ public class ClusteringActionExecutor extends BaseAction {
 
         meanDensity = meanDensity / (clusters.size() - countOutliers);
 
+        RoleAnalysisSessionStatisticType sessionStatistic = session.getSessionStatistic();
+
         meanDensity = Math.min(meanDensity, 100.000);
-        RoleAnalysisSessionStatisticType sessionStatistic = new RoleAnalysisSessionStatisticType();
         sessionStatistic.setProcessedObjectCount(processedObjectCount);
         sessionStatistic.setMeanDensity(meanDensity);
         sessionStatistic.setClusterCount(clusters.size());
 
         handler.enterNewStep("Update Session");
         handler.setOperationCountToProcess(clusters.size());
+
+        RoleAnalysisProcedureType analysisProcedureType = analysisOption.getAnalysisProcedureType();
+        if (analysisProcedureType == RoleAnalysisProcedureType.OUTLIER_DETECTION) {
+            resolveAnomalyNoise(clusters, session, attributeAnalysisCache, roleAnalysisService, task, result);
+        }
+
         roleAnalysisService
-                .updateSessionStatistics(sessionRef, sessionStatistic, task, result);
+                .updateSessionStatistics(session, sessionStatistic, task, result);
+        RoleAnalysisIdentifiedCharacteristicsType characteristicsContainer = objectCategorisationCache.build(session);
+
+        roleAnalysisService
+                .updateSessionIdentifiedCharacteristics(session, characteristicsContainer, task, result);
+
+        // Development only helper method - DO NOT RUN IN REAL ENVIRONMENT!
+        //logDebugOutlierDetectionEvaluation(sessionOid, ModelBeans.get().modelService, roleAnalysisService, task);
     }
 
-    public static @NotNull ListMultimap<String, String> loadRoleMembersMap(@NotNull ModelService modelService,
-            @Nullable SearchFilterType userQuery,
-            @NotNull Task task,
-            @NotNull OperationResult result) {
+    public void resolveAnomalyNoise(
+            List<PrismObject<RoleAnalysisClusterType>> clusters,
+            RoleAnalysisSessionType session,
+            AttributeAnalysisCache analysisCache,
+            RoleAnalysisService roleAnalysisService,
+            Task task,
+            OperationResult result) {
+        ListMultimap<String, String> roleMemberCache = analysisCache.getRoleMemberCache();
 
-        Set<String> existingRolesOidsSet = getExistingActiveRolesOidsSet(modelService, task, result);
+        ListMultimap<String, String> userRolesMap = reverseMap(roleMemberCache);
 
-        //role //user
-        return getRoleBasedRoleToUserMap(
-                modelService, userQuery, existingRolesOidsSet, task, result);
+        String sessionOid = session.getOid();
+
+        Map<RoleAnalysisOutlierPartitionType, RoleAnalysisOutlierType> allSessionOutlierPartitions = roleAnalysisService
+                .getSessionOutlierPartitionsMap(sessionOid, null, true, null, task, result);
+        ListMultimap<String, String> outlierAnomalyMap = ArrayListMultimap.create();
+        Set<String> sessionAnomalyOids = new HashSet<>();
+        Set<String> sessionOutlierOids = new HashSet<>();
+        allSessionOutlierPartitions.forEach((partition, outlier) -> {
+            sessionOutlierOids.add(outlier.getObjectRef().getOid());
+            List<DetectedAnomalyResult> detectedAnomalyResult = partition.getDetectedAnomalyResult();
+            if (detectedAnomalyResult != null) {
+                detectedAnomalyResult.forEach(anomaly -> {
+                    String anomalyRoleOid = anomaly.getTargetObjectRef().getOid();
+                    outlierAnomalyMap.put(outlier.getObjectRef().getOid(), anomalyRoleOid);
+                    sessionAnomalyOids.add(anomalyRoleOid);
+                });
+            }
+        });
+
+        loadSessionAnomalyCategorization(objectCategorisationCache, sessionAnomalyOids);
+        loadSessionOutlierCategorization(objectCategorisationCache, sessionOutlierOids);
+
+        for (PrismObject<RoleAnalysisClusterType> prismCluster : clusters) {
+            RoleAnalysisClusterType clusterObject = prismCluster.asObjectable();
+            List<ObjectReferenceType> member = clusterObject.getMember();
+            for (ObjectReferenceType userMember : member) {
+                String userMemberOid = userMember.getOid();
+                List<String> strings = userRolesMap.get(userMemberOid);
+                Set<String> userAnomalyOids = new HashSet<>();
+                for (String anomalyOid : sessionAnomalyOids) {
+                    if (strings.contains(anomalyOid)) {
+                        userAnomalyOids.add(anomalyOid);
+                    }
+                }
+
+                if (!userAnomalyOids.isEmpty()) {
+                    HashSet<String> outlierAnomaly = new HashSet<>(outlierAnomalyMap.get(userMemberOid));
+                    userAnomalyOids.removeAll(outlierAnomaly);
+                    sessionAnomalyOids.removeAll(userAnomalyOids);
+                }
+            }
+
+        }
+
+        loadSessionExclusiveAnomalyCategorization(objectCategorisationCache, sessionAnomalyOids);
+    }
+
+    //Temporary only user mode
+    private static void loadSessionAnomalyCategorization(
+            @NotNull ObjectCategorisationCache objectCategorisationCache,
+            @NotNull Set<String> sessionAnomalyOids) {
+        objectCategorisationCache.putAllCategory(sessionAnomalyOids,
+                RoleAnalysisObjectCategorizationType.ANOMALY, RoleType.COMPLEX_TYPE);
+    }
+
+    //Temporary only user mode
+    private static void loadSessionOutlierCategorization(
+            @NotNull ObjectCategorisationCache objectCategorisationCache,
+            @NotNull Set<String> sessionAnomalyOids) {
+        objectCategorisationCache.putAllCategory(sessionAnomalyOids,
+                RoleAnalysisObjectCategorizationType.OUTLIER, UserType.COMPLEX_TYPE);
+    }
+
+    private static void loadSessionExclusiveAnomalyCategorization(@NotNull ObjectCategorisationCache objectCategorisationCache,
+            @NotNull Set<String> sessionAnomalyOids) {
+        objectCategorisationCache.putAllCategory(sessionAnomalyOids,
+                RoleAnalysisObjectCategorizationType.OVERALL_ANOMALY, RoleType.COMPLEX_TYPE);
+    }
+
+    /**
+     * Logs outlier detection evaluation, can be used only with RBAC generated test data.
+     * Intended to be used for development purposes only.
+     */
+    private void logDebugOutlierDetectionEvaluation(
+            String sessionOid,
+            ModelService modelService,
+            RoleAnalysisService roleAnalysisService,
+            Task task
+    ) {
+        try {
+            var evaluation = new DebugOutlierDetectionEvaluation(
+                    sessionOid,
+                    modelService,
+                    roleAnalysisService,
+                    task
+            ).evaluate();
+            LOGGER.info(evaluation.toString());
+        } catch (Exception e) {
+            LOGGER.warn("Exception in outlier detection evaluation", e);
+        }
     }
 }

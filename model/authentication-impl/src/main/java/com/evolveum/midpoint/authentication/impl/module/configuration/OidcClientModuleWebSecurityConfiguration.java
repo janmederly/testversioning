@@ -147,7 +147,9 @@ public class OidcClientModuleWebSecurityConfiguration extends RemoteModuleWebSec
             registrations.add(clientRegistration);
 
             OidcAdditionalConfiguration.Builder additionalConfBuilder = OidcAdditionalConfiguration.builder()
-                    .singingAlg(client.getClientSigningAlgorithm());
+                    .singingAlg(client.getClientSigningAlgorithm())
+                    .idTokenSingingAlg(client.getIdTokenSigningAlgorithm())
+                    .usePKCE(client.getUsePkce());
             if (client.getSimpleProofKey() != null) {
                 initializeProofKey(client.getSimpleProofKey(), additionalConfBuilder);
             } else if (client.getKeyStoreProofKey() != null) {

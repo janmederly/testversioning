@@ -54,6 +54,14 @@ public abstract class AbstractResourceObjectDefinitionImpl
     static final LayerType DEFAULT_LAYER = LayerType.MODEL;
 
     /**
+     * Default settings obtained from the system configuration.
+     *
+     * Thread safety ensured by synchronized getter and setter.
+     * Invalidation handled by `ResourceManager` in the `provisioning-impl` module.
+     */
+    private static ShadowCachingPolicyType systemDefaultPolicy;
+
+    /**
      * At what layer do we have the attribute definitions.
      */
     @NotNull final LayerType currentLayer;
@@ -141,8 +149,7 @@ public abstract class AbstractResourceObjectDefinitionImpl
      * Definition of auxiliary object classes. They originate from
      * {@link ResourceObjectTypeDefinitionType#getAuxiliaryObjectClass()} and are resolved during parsing.
      *
-     * However, they are _not_ used by default for attribute resolution!
-     * A {@link CompositeObjectDefinition} must be created in order to "activate" them.
+     * Attributes defined in them are added to {@link #attributeDefinitions}.
      */
     @NotNull final DeeplyFreezableList<ResourceObjectDefinition> auxiliaryObjectClassDefinitions =
             new DeeplyFreezableList<>();
@@ -375,6 +382,12 @@ public abstract class AbstractResourceObjectDefinitionImpl
     }
 
     @Override
+    public @NotNull List<MappingType> getAuxiliaryObjectClassInboundMappings() {
+        var mappings = definitionBean.getAuxiliaryObjectClassMappings();
+        return mappings != null ? mappings.getInbound() : List.of();
+    }
+
+    @Override
     public @NotNull ShadowMarkingRules getShadowMarkingRules() {
         return MiscUtil.stateNonNull(
                 shadowMarkingRules.getValue(),
@@ -392,6 +405,15 @@ public abstract class AbstractResourceObjectDefinitionImpl
             return null;
         }
         return credentials.getPassword();
+    }
+
+    @Override
+    public @Nullable ResourceLastLoginTimestampDefinitionType getLastLoginTimestampDefinition() {
+        ResourceBehaviorDefinitionType behavior = definitionBean.getBehavior();
+        if (behavior == null) {
+            return null;
+        }
+        return behavior.getLastLoginTimestamp();
     }
 
     @Override
@@ -792,12 +814,6 @@ public abstract class AbstractResourceObjectDefinitionImpl
         return definitionBean;
     }
 
-//    void addReferenceAttributeDefinition(@NotNull ShadowReferenceAttributeDefinition definition) {
-//        checkMutable();
-//        associationDefinitions.add(definition);
-//        invalidatePrismObjectDefinition();
-//    }
-
     void addAuxiliaryObjectClassDefinition(@NotNull ResourceObjectDefinition definition) {
         checkMutable();
         auxiliaryObjectClassDefinitions.add(definition);
@@ -815,24 +831,44 @@ public abstract class AbstractResourceObjectDefinitionImpl
                 "Effective shadow caching policy is not available for unattached definitions: %s", this);
     }
 
-    private ShadowCachingPolicyType computeEffectiveShadowCachingPolicy() throws SchemaException, ConfigurationException {
-        var merged = BaseMergeOperation.merge(
-                definitionBean.getCaching(),
-                basicResourceInformation.cachingPolicy());
+    private @NotNull ShadowCachingPolicyType computeEffectiveShadowCachingPolicy()
+            throws SchemaException, ConfigurationException {
+
+        var cachingDefault = InternalsConfig.getShadowCachingDefault();
+
+        ShadowCachingPolicyType parentPolicy; // everything above the object class/type level
+        if (cachingDefault == InternalsConfig.ShadowCachingDefault.FROM_SYSTEM_CONFIGURATION) {
+            parentPolicy = BaseMergeOperation.merge(basicResourceInformation.cachingPolicy(), getSystemDefaultPolicy());
+        } else {
+            parentPolicy = basicResourceInformation.cachingPolicy();
+        }
+
+        var merged = BaseMergeOperation.merge(definitionBean.getCaching(), parentPolicy);
         var workingCopy = merged != null ? merged.clone() : new ShadowCachingPolicyType();
 
         boolean readCachedCapabilityPresent = isReadCachedCapabilityPresent();
 
-        boolean enabledBecauseOfReadCachedCapability = false;
-        boolean defaultIsMaxCaching = false;
+        var defaultForSimpleAttributesScope = ShadowSimpleAttributesCachingScopeType.DEFINED;
+        var defaultForCredentialsScope = ShadowItemsCachingScopeType.ALL;
+        var defaultForCacheUse = CachedShadowsUseType.USE_FRESH;
+        var defaultForTtl = "P1D";
         if (workingCopy.getCachingStrategy() == null) {
             if (readCachedCapabilityPresent) {
                 workingCopy.setCachingStrategy(CachingStrategyType.PASSIVE);
-                enabledBecauseOfReadCachedCapability = true;
-                defaultIsMaxCaching = true;
-            } else if (InternalsConfig.isShadowCachingOnByDefault()) {
+                defaultForSimpleAttributesScope = ShadowSimpleAttributesCachingScopeType.ALL;
+                defaultForCredentialsScope = ShadowItemsCachingScopeType.NONE;
+                defaultForTtl = "P1000Y";
+            } else if (cachingDefault == InternalsConfig.ShadowCachingDefault.FULL) {
+                // Currently used for testing
                 workingCopy.setCachingStrategy(CachingStrategyType.PASSIVE);
-                defaultIsMaxCaching = InternalsConfig.isShadowCachingFullByDefault();
+                defaultForSimpleAttributesScope = ShadowSimpleAttributesCachingScopeType.ALL;
+                defaultForCacheUse = CachedShadowsUseType.USE_CACHED_OR_FRESH;
+                defaultForTtl = "P1000Y";
+            } else if (cachingDefault == InternalsConfig.ShadowCachingDefault.FULL_BUT_USING_FRESH) {
+                // Currently used for testing
+                workingCopy.setCachingStrategy(CachingStrategyType.PASSIVE);
+                defaultForSimpleAttributesScope = ShadowSimpleAttributesCachingScopeType.ALL;
+                defaultForTtl = "P1000Y";
             } else {
                 workingCopy.setCachingStrategy(CachingStrategyType.NONE);
             }
@@ -843,9 +879,7 @@ public abstract class AbstractResourceObjectDefinitionImpl
         }
         var scope = workingCopy.getScope();
         if (scope.getAttributes() == null) {
-            scope.setAttributes(
-                    defaultIsMaxCaching ?
-                            ShadowSimpleAttributesCachingScopeType.ALL : ShadowSimpleAttributesCachingScopeType.DEFINED);
+            scope.setAttributes(defaultForSimpleAttributesScope);
         }
         if (scope.getAssociations() == null) {
             scope.setAssociations(ShadowItemsCachingScopeType.ALL);
@@ -854,24 +888,19 @@ public abstract class AbstractResourceObjectDefinitionImpl
             scope.setActivation(ShadowItemsCachingScopeType.ALL);
         }
         if (scope.getCredentials() == null) {
-            scope.setCredentials(
-                    enabledBecauseOfReadCachedCapability ? ShadowItemsCachingScopeType.NONE : ShadowItemsCachingScopeType.ALL);
+            scope.setCredentials(new ShadowCredentialsCachingScopeType());
+        }
+        if (scope.getCredentials().getPassword() == null) {
+            scope.getCredentials().setPassword(defaultForCredentialsScope);
         }
         if (scope.getAuxiliaryObjectClasses() == null) {
             scope.setAuxiliaryObjectClasses(ShadowItemsCachingScopeType.ALL);
         }
         if (workingCopy.getDefaultCacheUse() == null) {
-            // When enabling the caching because of read cached, we want to keep the pre-4.9 behavior (of not using
-            // the cache by projector) by default. It should not make a difference, but seemingly it does. TODO research
-            if (workingCopy.getCachingStrategy() == CachingStrategyType.PASSIVE && !enabledBecauseOfReadCachedCapability) {
-                workingCopy.setDefaultCacheUse(CachedShadowsUseType.USE_CACHED_OR_FRESH);
-            } else {
-                workingCopy.setDefaultCacheUse(CachedShadowsUseType.USE_FRESH);
-            }
+            workingCopy.setDefaultCacheUse(defaultForCacheUse);
         }
         if (workingCopy.getTimeToLive() == null) {
-            workingCopy.setTimeToLive(
-                    XmlTypeConverter.createDuration(defaultIsMaxCaching ? "P1000Y" : "P1D"));
+            workingCopy.setTimeToLive(XmlTypeConverter.createDuration(defaultForTtl));
         }
         return workingCopy;
     }
@@ -894,13 +923,15 @@ public abstract class AbstractResourceObjectDefinitionImpl
     }
 
     @Override
-    public ItemInboundDefinition getSimpleAttributeInboundDefinition(ItemName itemName) {
-        return findSimpleAttributeDefinition(itemName);
-    }
-
-    @Override
-    public ItemInboundDefinition getReferenceAttributeInboundDefinition(ItemName itemName) {
-        return findReferenceAttributeDefinition(itemName);
+    public @NotNull Collection<CompleteItemInboundDefinition> getItemInboundDefinitions() {
+        var all = new ArrayList<CompleteItemInboundDefinition>();
+        for (var attrDef : attributeDefinitions) {
+            all.add(new CompleteItemInboundDefinition(attrDef.getStandardPath(), attrDef, attrDef));
+        }
+        for (var assocDef : associationDefinitions) {
+            all.add(new CompleteItemInboundDefinition(assocDef.getStandardPath(), assocDef, assocDef));
+        }
+        return all;
     }
 
     @Override
@@ -911,5 +942,27 @@ public abstract class AbstractResourceObjectDefinitionImpl
     @Override
     public DefinitionMutator mutator() {
         throw new UnsupportedOperationException();
+    }
+
+    private static synchronized ShadowCachingPolicyType getSystemDefaultPolicy() {
+        return systemDefaultPolicy;
+    }
+
+    public static synchronized void setSystemDefaultPolicy(ShadowCachingPolicyType value) {
+        systemDefaultPolicy = value != null ? value.clone() : null;
+    }
+
+    @Override
+    public @NotNull Collection<ShadowAttributeDefinition<?, ?, ?, ?>> getAttributesVolatileOnAddOperation() {
+        return attributeDefinitions.stream()
+                .filter(def -> def.isVolatileOnAddOperation())
+                .toList();
+    }
+
+    @Override
+    public @NotNull Collection<ShadowAttributeDefinition<?, ?, ?, ?>> getAttributesVolatileOnModifyOperation() {
+        return attributeDefinitions.stream()
+                .filter(def -> def.isVolatileOnModifyOperation())
+                .toList();
     }
 }

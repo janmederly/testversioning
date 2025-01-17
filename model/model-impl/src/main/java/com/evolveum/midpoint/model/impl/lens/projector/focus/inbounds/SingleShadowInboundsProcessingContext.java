@@ -7,25 +7,18 @@
 
 package com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds;
 
-import com.evolveum.midpoint.model.api.InboundSourceData;
-import com.evolveum.midpoint.model.api.expr.MidpointFunctions;
-import com.evolveum.midpoint.model.impl.correlation.CorrelationServiceImpl;
-import com.evolveum.midpoint.model.impl.lens.LensContext;
-
-import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.InboundsSource;
-import com.evolveum.midpoint.prism.Containerable;
-
-import com.evolveum.midpoint.prism.PrismContainerValue;
-
-import com.evolveum.midpoint.schema.processor.ResourceObjectInboundDefinition;
-
-import com.evolveum.midpoint.schema.processor.ResourceObjectTypeIdentification;
-
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import com.evolveum.midpoint.model.api.expr.MidpointFunctions;
 import com.evolveum.midpoint.model.impl.ResourceObjectProcessingContext;
+import com.evolveum.midpoint.model.impl.correlation.CorrelationServiceImpl;
+import com.evolveum.midpoint.model.impl.lens.LensContext;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.InboundMappingContextSpecification;
+import com.evolveum.midpoint.prism.Containerable;
+import com.evolveum.midpoint.prism.PrismContainerValue;
 import com.evolveum.midpoint.schema.processor.ResourceObjectDefinition;
+import com.evolveum.midpoint.schema.processor.ResourceObjectInboundProcessingDefinition;
 import com.evolveum.midpoint.util.DebugDumpable;
 import com.evolveum.midpoint.util.exception.ConfigurationException;
 import com.evolveum.midpoint.util.exception.SchemaException;
@@ -50,16 +43,16 @@ public interface SingleShadowInboundsProcessingContext<T extends Containerable>
         return getPreFocus().asPrismContainerValue();
     }
 
-    /** For what (top-level!) object type we are processing the shadow, see {@link InboundsSource#typeIdentification}. */
-    @Nullable ResourceObjectTypeIdentification getTypeIdentification();
+    /** Background information for value provenance metadata for inbound mappings related to this shadow. */
+    @NotNull InboundMappingContextSpecification getMappingContextSpecification();
 
     /**
      * Relates to {@link ResourceObjectProcessingContext#getShadowLikeValue()}.
-     * See the docs for {@link InboundSourceData#getShadowObjectDefinition()}.
      */
     @NotNull ResourceObjectDefinition getObjectDefinitionRequired() throws SchemaException, ConfigurationException;
 
-    @NotNull ResourceObjectInboundDefinition getInboundDefinition() throws SchemaException, ConfigurationException;
+    @NotNull ResourceObjectInboundProcessingDefinition getInboundProcessingDefinition()
+            throws SchemaException, ConfigurationException;
 
     /** Returns the archetype OID bound to the object type. Archetypes determined from the focus itself are not returned here. */
     @Nullable String getArchetypeOid();

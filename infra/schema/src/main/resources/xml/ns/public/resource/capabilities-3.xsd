@@ -68,7 +68,13 @@
             <xsd:element name="schema" type="tns:SchemaCapabilityType" minOccurs="0"/>
             <xsd:element name="discoverConfiguration" type="tns:DiscoverConfigurationCapabilityType" minOccurs="0"/>
             <xsd:element name="activation" type="tns:ActivationCapabilityType" minOccurs="0"/>
-            <xsd:element name="references" type="tns:ReferencesCapabilityType" minOccurs="0"/>
+            <xsd:element name="references" type="tns:ReferencesCapabilityType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:appinfo>
+                        <a:since>4.9</a:since>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
             <xsd:element name="credentials" type="tns:CredentialsCapabilityType" minOccurs="0"/>
             <xsd:element name="liveSync" type="tns:LiveSyncCapabilityType" minOccurs="0"/>
             <xsd:element name="asyncUpdate" type="tns:AsyncUpdateCapabilityType" minOccurs="0"/>
@@ -83,6 +89,7 @@
             <xsd:element name="addRemoveAttributeValues" type="tns:AddRemoveAttributeValuesCapabilityType" minOccurs="0"/>
             <xsd:element name="auxiliaryObjectClasses" type="tns:AuxiliaryObjectClassesCapabilityType" minOccurs="0"/>
             <xsd:element name="runAs" type="tns:RunAsCapabilityType" minOccurs="0"/>
+            <xsd:element name="behavior" type="tns:BehaviorCapabilityType" minOccurs="0"/>
         </xsd:sequence>
         <xsd:attribute name="id" type="xsd:long"/>
     </xsd:complexType>
@@ -878,15 +885,96 @@
         </xsd:complexContent>
     </xsd:complexType>
 
+    <xsd:complexType name="BehaviorCapabilityType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Container for various behavior-related capabilities.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:since>4.9.1</a:since>
+                <a:container>true</a:container>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:complexContent>
+            <xsd:extension base="tns:CapabilityType">
+                <xsd:sequence>
+                    <xsd:element name="lastLoginTimestamp" type="tns:LastLoginTimestampCapabilityType" minOccurs="0"/>
+                </xsd:sequence>
+                <xsd:attribute name="id" type="xsd:long"/>
+            </xsd:extension>
+        </xsd:complexContent>
+    </xsd:complexType>
+
+    <xsd:complexType name="LastLoginTimestampCapabilityType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Describes capability of resource to provide last login timestamp.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:since>4.9.1</a:since>
+                <a:container>true</a:container>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:complexContent>
+            <xsd:extension base="tns:CapabilityType">
+                <xsd:sequence>
+                    <xsd:element name="returnedByDefault" type="xsd:boolean" minOccurs="0" default="true"/>
+                    <xsd:element name="attribute" type="xsd:QName" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>
+                                Name of the attribute to use for account last login date.
+                                This is a configuration of simulated capability.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="ignoreAttribute" type="xsd:boolean" minOccurs="0" default="true">
+                        <xsd:annotation>
+                            <xsd:documentation>
+                                Flag that controls whether the original attribute should be ignored.
+
+                                If set to true (or not present at all) the original attribute used as a source of
+                                simulated capability is marked as "ignored" in the schema. If set to false then
+                                the original attribute is still present in its original form in the schema.
+
+                                This option is meaningful only for simulated lastLoginTimestamp, i.e. in case that the
+                                "attribute" element above is set.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="format" type="xsd:string" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>
+                                Option that controls how attribute value is parsed using SimpleDateFormat utility class.
+
+                                This option is meaningful only for simulated lastLoginTimestamp, i.e. in case that the
+                                "attribute" element above is set.
+                            </xsd:documentation>
+                        </xsd:annotation>
+                    </xsd:element>
+                </xsd:sequence>
+                <xsd:attribute name="id" type="xsd:long"/>
+            </xsd:extension>
+        </xsd:complexContent>
+    </xsd:complexType>
+
     <xsd:element name="runAs" type="tns:RunAsCapabilityType"/>
 
     <xsd:complexType name="ReferencesCapabilityType">
         <xsd:annotation>
             <xsd:documentation>
-                TODO
+                May specify either the native or simulated references.
+
+                Native references are provided by the connector. In that case, the "type" item is empty.
+                Also, this capability cannot be disabled by setting the "enabled" property to "false".
+                MidPoint will ignore that setting, and the connector-provided references will still be there
+                and will be used normally.
+
+                Simulated references are provided by the engineer. In that case, the "type" item is used
+                to specify how they should be simulated. The "enabled" property is used in the standard way.
             </xsd:documentation>
             <xsd:appinfo>
                 <a:container>true</a:container>
+                <a:since>4.9</a:since>
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:complexContent>
@@ -898,7 +986,7 @@
         </xsd:complexContent>
     </xsd:complexType>
 
-    <xsd:element name="associations" type="tns:ReferencesCapabilityType"/>
+    <xsd:element name="references" type="tns:ReferencesCapabilityType"/>
 
     <xsd:complexType name="SimulatedReferenceTypeDefinitionType">
         <xsd:annotation>
@@ -921,7 +1009,7 @@
             <xsd:element name="subject" type="tns:SimulatedReferenceTypeParticipantType">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Definition of the "subject" side of this association class.
+                        Definition of the "subject" side of this reference type.
                         Typically, these are account-like kind of objects (e.g., user, inetOrgPerson, ...).
                     </xsd:documentation>
                 </xsd:annotation>
@@ -929,7 +1017,7 @@
             <xsd:element name="object" type="tns:SimulatedReferenceTypeParticipantType">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Definition of the "subject" side of this association class.
+                        Definition of the "subject" side of this reference type.
                         Typically, these are entitlement-like kind of objects (e.g., group, organizationalUnit, ...).
                     </xsd:documentation>
                 </xsd:annotation>
@@ -944,7 +1032,7 @@
             <xsd:element name="explicitReferentialIntegrity" type="xsd:boolean" minOccurs="0" default="true">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Whether you require midPoint to provide referential integrity for this association type.
+                        Whether you require midPoint to provide referential integrity for this reference type.
 
                         Used for resources that do not provide referential integrity by themselves, e.g. for OpenDJ with
                         default settings (i.e. with referential integrity plugin turned off).
@@ -970,14 +1058,13 @@
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
-            <xsd:element name="delineation" type="tns:SimulatedAssociationClassParticipantDelineationType"
+            <xsd:element name="delineation" type="tns:SimulatedReferenceTypeParticipantDelineationType"
                     minOccurs="0" maxOccurs="unbounded">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Resource objects that participate as a subject or object of an association.
+                        Resource objects that participate as a subject or object of a simulated reference.
                         The binding attribute definition must be the same for all of them.
-
-                        The default is to be taken from the object type for which the association is being defined.
+                        At least one delineation must be defined here.
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
@@ -985,12 +1072,12 @@
                 <xsd:annotation>
                     <xsd:documentation>
                         The attribute (on this participant's side) that provides the primary binding, i.e. the binding
-                        that is updated when the association is created or deleted.
+                        that is updated when the reference value is created or deleted.
 
                         An example: ri:dn for the subject (inetOrgPerson), ri:members for the object (groupOfNames).
 
                         For the "receiving" side, i.e., the side that the binding points to, the attribute must be
-                        a primary or secondary identifier (like ri:dn).
+                        a primary or secondary identifier (like ri:dn is for inetOrgPerson).
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
@@ -1003,18 +1090,18 @@
                         An example: ri:memberOf for the subject (inetOrgPerson), ri:dn for the object (groupOfNames).
 
                         For the "receiving" side, i.e., the side that the binding points to, the attribute must be
-                        a primary or secondary identifier (like ri:dn).
+                        a primary or secondary identifier (like ri:dn for groupOfNames).
 
-                        Optional. But it must be specified either for both sides of the association, or for none of them.
+                        Optional. But it must be specified either for both sides of the reference, or for none of them.
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
             <xsd:element name="localItemName" type="xsd:QName" minOccurs="0">
                 <xsd:annotation>
                     <xsd:documentation>
-                        The name under which this association is manifested on the participant resource object.
+                        The name under which this reference is manifested on the participant resource object.
 
-                        If not specified, the association is not visible on the participant.
+                        If not specified, the reference is not visible on the participant.
 
                         Limitation: Currently supported only for the subject side, and it is required there.
                     </xsd:documentation>
@@ -1024,10 +1111,10 @@
         <xsd:attribute name="id" type="xsd:long"/>
     </xsd:complexType>
 
-    <xsd:complexType name="SimulatedAssociationClassParticipantDelineationType">
+    <xsd:complexType name="SimulatedReferenceTypeParticipantDelineationType">
         <xsd:annotation>
             <xsd:documentation>
-                Delineates the boundary of eligible simulated association participants.
+                Delineates the boundary of eligible simulated reference participants.
 
                 Similar to ResourceObjectTypeDelineationType, but with slight differences. Hence, we use a separate type.
             </xsd:documentation>
@@ -1083,8 +1170,6 @@
                         Restriction of the participant to the specified auxiliary object class, if present.
                         Typically used if the binding attribute is defined in this class, like ri:uid for a posixAccount,
                         which is a member of a posixGroup.
-
-                        Currently supported only for the subjects.
                     </xsd:documentation>
                     <xsd:appinfo>
                         <a:experimental>true</a:experimental>

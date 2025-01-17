@@ -7,7 +7,7 @@
 
 package com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds;
 
-import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.InboundsSource;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.InboundMappingContextSpecification;
 import com.evolveum.midpoint.prism.Containerable;
 import com.evolveum.midpoint.schema.processor.*;
 
@@ -34,6 +34,8 @@ import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
  * - {@link CorrelationServiceImpl#checkCandidateOwner(ShadowType, ResourceType, SynchronizationPolicy, FocusType, Task,
  * OperationResult)},
  * - or association value synchronization.
+ *
+ * Does NOT support deltas.
  */
 public class DefaultSingleShadowInboundsProcessingContextImpl<T extends Containerable>
         implements SingleShadowInboundsProcessingContext<T> {
@@ -42,11 +44,8 @@ public class DefaultSingleShadowInboundsProcessingContextImpl<T extends Containe
 
     @NotNull private final ResourceType resource;
 
-    /**
-     * For what (top-level!) object type we are processing the shadow, see {@link InboundsSource#typeIdentification}.
-     * Should be non-null in reasonable cases.
-     */
-    @Nullable private final ResourceObjectTypeIdentification typeIdentification;
+    /** Background information for value provenance metadata for inbound mappings related to this shadow. */
+    @NotNull private final InboundMappingContextSpecification mappingContextSpecification;
 
     @NotNull private final T preFocus;
 
@@ -56,28 +55,28 @@ public class DefaultSingleShadowInboundsProcessingContextImpl<T extends Containe
 
     @NotNull private final ResourceObjectDefinition objectDefinition;
 
-    @NotNull private final ResourceObjectInboundDefinition inboundDefinition;
+    @NotNull private final ResourceObjectInboundProcessingDefinition inboundProcessingDefinition;
 
     private final boolean beforeCorrelation;
 
     public DefaultSingleShadowInboundsProcessingContextImpl(
             @NotNull ShadowLikeValue shadowLikeValue,
             @NotNull ResourceType resource,
-            @Nullable ResourceObjectTypeIdentification typeIdentification,
+            @NotNull InboundMappingContextSpecification mappingContextSpecification,
             @NotNull T preFocus,
             @Nullable SystemConfigurationType systemConfiguration,
             @NotNull Task task,
             @NotNull ResourceObjectDefinition objectDefinition,
-            @NotNull ResourceObjectInboundDefinition inboundDefinition,
+            @NotNull ResourceObjectInboundProcessingDefinition inboundProcessingDefinition,
             boolean beforeCorrelation) {
         this.shadowLikeValue = shadowLikeValue;
         this.resource = resource;
-        this.typeIdentification = typeIdentification;
+        this.mappingContextSpecification = mappingContextSpecification;
         this.preFocus = preFocus;
         this.systemConfiguration = systemConfiguration;
         this.task = task;
         this.objectDefinition = objectDefinition;
-        this.inboundDefinition = inboundDefinition;
+        this.inboundProcessingDefinition = inboundProcessingDefinition;
         this.beforeCorrelation = beforeCorrelation;
     }
 
@@ -110,8 +109,8 @@ public class DefaultSingleShadowInboundsProcessingContextImpl<T extends Containe
     }
 
     @Override
-    public @NotNull ResourceObjectTypeIdentification getTypeIdentification() {
-        return typeIdentification;
+    public @NotNull InboundMappingContextSpecification getMappingContextSpecification() {
+        return mappingContextSpecification;
     }
 
     @Override
@@ -120,13 +119,13 @@ public class DefaultSingleShadowInboundsProcessingContextImpl<T extends Containe
     }
 
     @Override
-    public @NotNull ResourceObjectInboundDefinition getInboundDefinition() {
-        return inboundDefinition;
+    public @NotNull ResourceObjectInboundProcessingDefinition getInboundProcessingDefinition() {
+        return inboundProcessingDefinition;
     }
 
     @Override
     public @Nullable String getArchetypeOid() {
-        return inboundDefinition.getFocusSpecification().getArchetypeOid();
+        return inboundProcessingDefinition.getFocusSpecification().getArchetypeOid();
     }
 
     @Override

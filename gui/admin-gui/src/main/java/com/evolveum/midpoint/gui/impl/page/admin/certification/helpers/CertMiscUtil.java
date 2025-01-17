@@ -15,10 +15,13 @@ import com.evolveum.midpoint.certification.api.OutcomeUtils;
 import com.evolveum.midpoint.gui.api.component.progressbar.ProgressBar;
 import com.evolveum.midpoint.gui.api.model.LoadableModel;
 
+import com.evolveum.midpoint.gui.api.prism.wrapper.PrismContainerValueWrapper;
 import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
 import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
 import com.evolveum.midpoint.gui.api.util.WebModelServiceUtils;
 import com.evolveum.midpoint.gui.impl.component.action.AbstractGuiAction;
+import com.evolveum.midpoint.gui.impl.page.admin.certification.column.AbstractGuiColumn;
+import com.evolveum.midpoint.model.api.authentication.CompiledObjectCollectionView;
 import com.evolveum.midpoint.prism.Item;
 import com.evolveum.midpoint.prism.PrismContainerValue;
 import com.evolveum.midpoint.prism.PrismContext;
@@ -28,6 +31,7 @@ import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
 import com.evolveum.midpoint.prism.query.OrderDirection;
 import com.evolveum.midpoint.prism.query.builder.S_FilterExit;
+import com.evolveum.midpoint.prism.query.builder.S_MatchingRuleEntry;
 import com.evolveum.midpoint.repo.api.AggregateQuery;
 import com.evolveum.midpoint.schema.SearchResultList;
 import com.evolveum.midpoint.schema.result.OperationResult;
@@ -53,8 +57,11 @@ import org.apache.commons.lang3.StringUtils;
 
 import com.evolveum.midpoint.gui.api.page.PageBase;
 
+import org.apache.commons.lang3.reflect.ConstructorUtils;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.extensions.markup.html.repeater.data.table.IColumn;
 import org.apache.wicket.model.IModel;
+import org.apache.wicket.model.LoadableDetachableModel;
 import org.jetbrains.annotations.NotNull;
 
 import static com.evolveum.midpoint.util.MiscUtil.or0;
@@ -68,6 +75,8 @@ public class CertMiscUtil {
     private static final String OPERATION_LOAD_CAMPAIGNS_OIDS = "loadCampaignsOids";
     private static final String OPERATION_COUNT_CASES_PROGRESS = "countCasesProgress";
     private static final String OPERATION_COUNT_WORK_ITEMS_PROGRESS = "countWorkItemsProgress";
+    private static final String OPERATION_LOAD_ACCESS_CERT_DEFINITION = "loadAccessCertificationDefinition";
+    private static final String OPERATION_LOAD_CERTIFICATION_CONFIG = "loadCertificationConfiguration";
 
     public static String getStopReviewOnText(List<AccessCertificationResponseType> stopOn, PageBase page) {
         if (stopOn == null) {
@@ -308,6 +317,48 @@ public class CertMiscUtil {
         return count;
     }
 
+    public static long countCertItemsForClosedStageAndIteration(AccessCertificationCampaignType campaign,
+            boolean notDecidedOnly, PageBase pageBase) {
+        if (!AccessCertificationCampaignStateType.REVIEW_STAGE_DONE.equals(campaign.getState())) {
+            return 0;
+        }
+        long count = 0;
+
+        var campaignOid = campaign.getOid();
+        var iteration = campaign.getIteration();
+        var stage = or0(campaign.getStageNumber());
+
+        Task task = pageBase.createSimpleTask("countCertificationWorkItems");
+        OperationResult result = task.getResult();
+        try {
+            ObjectQuery query = null;
+
+            S_MatchingRuleEntry queryPart = PrismContext.get().queryFor(AccessCertificationWorkItemType.class)
+                    .ownerId(campaignOid)
+                    .and()
+                    .item(AccessCertificationWorkItemType.F_STAGE_NUMBER)
+                    .eq(stage)
+                    .and()
+                    .item(AccessCertificationWorkItemType.F_ITERATION)
+                    .eq(iteration);
+            if (notDecidedOnly) {
+                query = queryPart
+                        .and()
+                        .item(AccessCertificationWorkItemType.F_OUTPUT, AbstractWorkItemOutputType.F_OUTCOME)
+                        .isNull()
+                        .build();
+            } else {
+                query = queryPart.build();
+            }
+            count = pageBase.getModelService()
+                    .countContainers(AccessCertificationWorkItemType.class, query, null, task, result);
+        } catch (Exception ex) {
+            LOGGER.error("Couldn't count certification work items", ex);
+            pageBase.showResult(result);
+        }
+        return count;
+    }
+
     public static List<String> getActiveCampaignsOids(boolean onlyForLoggedInUser, PageBase pageBase) {
         OperationResult result = new OperationResult(OPERATION_LOAD_CAMPAIGNS_OIDS);
         ObjectQuery campaignsQuery;
@@ -343,8 +394,8 @@ public class CertMiscUtil {
                 .build();
     }
 
-    public static LoadableModel<String> getCampaignStageLoadableModel(AccessCertificationCampaignType campaign) {
-        return new LoadableModel<>() {
+    public static LoadableDetachableModel<String> getCampaignStageLoadableModel(AccessCertificationCampaignType campaign) {
+        return new LoadableDetachableModel<>() {
             @Serial private static final long serialVersionUID = 1L;
 
             @Override
@@ -353,15 +404,23 @@ public class CertMiscUtil {
                     return "";
                 }
                 AccessCertificationStageType stage = CertCampaignTypeUtil.getCurrentStage(campaign);
-                int stageNumber = stage != null ? or0(stage.getNumber()) : 0;
+                int stageNumber = stage != null ? or0(stage.getNumber()) : campaign.getStageNumber();
+                if (CollectionUtils.isNotEmpty(campaign.getStage()) && campaign.getStage().size() < stageNumber) {
+                    stageNumber = campaign.getStage().size();
+                }
                 int numberOfStages = CertCampaignTypeUtil.getNumberOfStages(campaign);
-                return stageNumber + "/" + numberOfStages;
+                StringBuilder sb = new StringBuilder();
+                sb.append(stageNumber);
+                if (numberOfStages > 0) {
+                    sb.append("/").append(numberOfStages);
+                }
+                return sb.toString();
             }
         };
     }
 
-    public static LoadableModel<String> getCampaignIterationLoadableModel(AccessCertificationCampaignType campaign) {
-        return new LoadableModel<>() {
+    public static LoadableDetachableModel<String> getCampaignIterationLoadableModel(AccessCertificationCampaignType campaign) {
+        return new LoadableDetachableModel<>() {
             @Serial private static final long serialVersionUID = 1L;
 
             @Override
@@ -439,7 +498,7 @@ public class CertMiscUtil {
         availableResponses.removeIf(r -> r.equals(response));
     }
 
-    private static AbstractGuiAction<AccessCertificationWorkItemType> createAction(AccessCertificationResponseType response, PageBase pageBase) {
+    public static AbstractGuiAction<AccessCertificationWorkItemType> createAction(AccessCertificationResponseType response, PageBase pageBase) {
         CertificationItemResponseHelper helper = new CertificationItemResponseHelper(response);
         Class<? extends AbstractGuiAction<AccessCertificationWorkItemType>> actionClass = helper.getGuiActionForResponse();
         if (actionClass == null) {
@@ -550,7 +609,7 @@ public class CertMiscUtil {
         return actionsList.contains(action);
     }
 
-    public static List<ObjectReferenceType> loadCampaignReviewers(String campaignOid, PageBase pageBase) {
+    public static List<ObjectReferenceType> loadCampaignReviewers(AccessCertificationCampaignType campaign, PageBase pageBase) {
         OperationResult result = new OperationResult("loadCampaignReviewers");
         try {
             var outcomePath = ItemPath.create(AccessCertificationWorkItemType.F_OUTPUT, AbstractWorkItemOutputType.F_OUTCOME);
@@ -560,8 +619,18 @@ public class CertMiscUtil {
                     .retrieve(AbstractWorkItemOutputType.F_OUTCOME, outcomePath)
                     .count(AccessCertificationCaseType.F_WORK_ITEM, ItemPath.SELF_PATH);
 
-            spec.filter(PrismContext.get().queryFor(AbstractWorkItemType.class)
+            var campaignOid = campaign.getOid();
+            var iteration = campaign.getIteration();
+            var stage = or0(campaign.getStageNumber());
+
+            spec.filter(PrismContext.get().queryFor(AccessCertificationWorkItemType.class)
                     .ownerId(campaignOid)
+                    .and()
+                    .item(AccessCertificationWorkItemType.F_STAGE_NUMBER)
+                    .eq(stage)
+                    .and()
+                    .item(AccessCertificationWorkItemType.F_ITERATION)
+                    .eq(iteration)
                     .buildFilter()
             );
             spec.orderBy(spec.getResultItem(AccessCertificationWorkItemType.F_ASSIGNEE_REF), OrderDirection.DESCENDING);
@@ -613,4 +682,203 @@ public class CertMiscUtil {
                 .build();
         return WebModelServiceUtils.searchObjects(TaskType.class, query, null, result, pageBase);
     }
+
+    public static List<IColumn<PrismContainerValueWrapper<AccessCertificationWorkItemType>, String>> createCertItemsColumns(
+            CompiledObjectCollectionView view, ColumnTypeConfigContext context) {
+        PageBase pageBase = context.getPageBase();
+        List<IColumn<PrismContainerValueWrapper<AccessCertificationWorkItemType>, String>> columns = new ArrayList<>();
+
+        List<AbstractGuiColumn<?, ?>> guiColumns = new ArrayList<>();
+
+        List<GuiObjectColumnType> viewColumns = getViewColumns(view);
+
+        viewColumns.forEach(columnConfig -> {
+            Class<? extends AbstractGuiColumn<?, ?>> columnClass = pageBase.findGuiColumn(columnConfig.getName());
+            AbstractGuiColumn<?, ?> column = instantiateColumn(columnClass, columnConfig, context);
+            if (column != null && column.isVisible()) {
+                guiColumns.add(column);
+            }
+        });
+        return guiColumns
+                .stream()
+                .map(column -> (IColumn<PrismContainerValueWrapper<AccessCertificationWorkItemType>, String>) column.createColumn())
+                .collect(Collectors.toList());
+    }
+
+    private static List<GuiObjectColumnType> getViewColumns(CompiledObjectCollectionView view) {
+        List<GuiObjectColumnType> defaultColumns = getCertItemViewDefaultColumns();
+        if (view == null || view.getColumns() == null || view.getColumns().isEmpty()) {
+            return defaultColumns;
+        }
+        if (view.isIncludeDefaultColumns()) {
+            return applyCustomConfig(defaultColumns, view);
+        }
+        return new ArrayList<>();
+    }
+
+    private static List<GuiObjectColumnType> applyCustomConfig(List<GuiObjectColumnType> defaultColumns, CompiledObjectCollectionView view) {
+        if (view == null || view.getColumns() == null) {
+            return defaultColumns;
+        }
+        List<GuiObjectColumnType> columns = new ArrayList<>();
+        defaultColumns
+                .forEach(c -> {
+                    GuiObjectColumnType column = findColumnByName(view.getColumns(), c.getName());
+                    if (column == null) {
+                        columns.add(c);
+                    } else if (WebComponentUtil.getElementVisibility(column.getVisibility())) {
+                        columns.add(column);
+                    }
+                });
+        return columns;
+    }
+
+    private static GuiObjectColumnType findColumnByName(List<GuiObjectColumnType> columns, String name) {
+        if (columns == null) {
+            return null;
+        }
+        return columns.stream()
+                .filter(c -> c.getName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static List<GuiObjectColumnType> getCertItemViewDefaultColumns() {
+        List<GuiObjectColumnType> defaultColumns = new ArrayList<>();
+        defaultColumns.add(new GuiObjectColumnType().name("certItemObject"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemObjectDisplayName"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemTarget"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemTargetDisplayName"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemReviewers"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemResponse"));
+        defaultColumns.add(new GuiObjectColumnType().name("certItemCommentIcon"));
+        return defaultColumns;
+    }
+
+    private static List<AbstractGuiColumn<?, ?>> addDefaultColumns(List<AbstractGuiColumn<?, ?>> guiColumns,
+            ColumnTypeConfigContext context) {
+        PageBase pageBase = context.getPageBase();
+        pageBase
+                .findAllApplicableGuiColumns(AccessCertificationWorkItemType.class)
+                .forEach(columnClass -> {
+                    if (alreadyExistInColumnList(guiColumns, columnClass)) {
+                        return;
+                    }
+                    AbstractGuiColumn<?, ?> guiColumn = instantiateColumn(columnClass, null, context);
+                    if (guiColumn != null) {
+                        guiColumns.add(guiColumn);
+                    }
+                });
+
+        return guiColumns;
+    }
+
+    private static boolean alreadyExistInColumnList(List<AbstractGuiColumn<?, ?>> columns, Class<? extends AbstractGuiColumn> column) {
+        return columns
+                .stream()
+                .anyMatch(c -> c.getClass().equals(column));
+    }
+
+    private static AbstractGuiColumn<?, ?> instantiateColumn(Class<? extends AbstractGuiColumn> columnClass, GuiObjectColumnType columnConfig,
+            ColumnTypeConfigContext context) {
+        if (columnClass == null) {
+            return null;
+        }
+        try {
+            return ConstructorUtils.invokeConstructor(columnClass, columnConfig, context);
+        } catch (Throwable e) {
+            LOGGER.trace("No constructor found for column.", e);
+        }
+        return null;
+    }
+
+    public static List<AccessCertificationResponseType> gatherAvailableResponsesForCampaign(String campaignOid,
+            PageBase pageBase) {
+        List<AccessCertificationResponseType> availableResponses = new AvailableResponses(pageBase).getResponseValues();
+        CompiledObjectCollectionView configuredActions = CertMiscUtil.loadCampaignView(pageBase,
+                campaignOid);
+
+        if (configuredActions != null) {
+            configuredActions.getActions()
+                    .forEach(action -> {
+                        AccessCertificationResponseType configuredResponse = CertificationItemResponseHelper.getResponseForGuiAction(action);
+                        if (configuredResponse == null) {
+                            return;
+                        }
+                        if (!availableResponses.contains(configuredResponse)
+                                && WebComponentUtil.getElementVisibility(action.getVisibility())) {
+                            availableResponses.add(configuredResponse);
+                            return;
+                        }
+                        if (availableResponses.contains(configuredResponse)
+                                && !WebComponentUtil.getElementVisibility(action.getVisibility())) {
+                            availableResponses.remove(configuredResponse);
+                        }
+                    });
+        }
+        return availableResponses;
+    }
+
+    public static CompiledObjectCollectionView loadCampaignView(PageBase pageBase, String campaignOid) {
+        Task task = pageBase.createSimpleTask(OPERATION_LOAD_ACCESS_CERT_DEFINITION);
+        OperationResult result = task.getResult();
+
+        GuiObjectListViewType campaignDefinitionView = getCollectionViewConfigurationFromCampaignDefinition(campaignOid, task,
+                result, pageBase);
+
+        GuiObjectListViewType defaultView = null;
+        try {
+            OperationResult subResult = result.createSubresult(OPERATION_LOAD_CERTIFICATION_CONFIG);
+            var certificationConfig = pageBase.getModelInteractionService().getCertificationConfiguration(subResult);
+            if (certificationConfig != null) {
+                defaultView = certificationConfig.getDefaultView();
+            }
+        } catch (Exception e) {
+            LOGGER.error("Couldn't load certification configuration from system configuration, ", e);
+        }
+
+        if (campaignDefinitionView == null && defaultView == null) {
+            return null;
+        }
+
+        try {
+            CompiledObjectCollectionView compiledView = new CompiledObjectCollectionView();
+            compiledView.setContainerType(AccessCertificationWorkItemType.COMPLEX_TYPE);
+
+            if (defaultView != null) {
+                pageBase.getModelInteractionService().compileView(compiledView, defaultView, task, result);
+            }
+            if (campaignDefinitionView != null) {
+                pageBase.getModelInteractionService().compileView(compiledView, campaignDefinitionView, task, result);
+            }
+
+            return compiledView;
+        } catch (Exception e) {
+            LOGGER.error("Couldn't load certification work items view, ", e);
+        }
+        return null;
+    }
+
+    private static GuiObjectListViewType getCollectionViewConfigurationFromCampaignDefinition(String campaignOid, Task task,
+            OperationResult result, PageBase pageBase) {
+        if (campaignOid == null) {
+            return null;
+        }
+        var campaign = WebModelServiceUtils.loadObject(AccessCertificationCampaignType.class, campaignOid, pageBase, task, result);
+        if (campaign == null) {
+            return null;
+        }
+        var definitionRef = campaign.asObjectable().getDefinitionRef();
+        if (definitionRef == null) {
+            return null;
+        }
+        PrismObject<AccessCertificationDefinitionType> definitionObj = WebModelServiceUtils.loadObject(definitionRef, pageBase, task, result);
+        if (definitionObj == null) {
+            return null;
+        }
+        AccessCertificationDefinitionType definition = definitionObj.asObjectable();
+        return definition.getView();
+    }
+
+
 }

@@ -42,14 +42,7 @@ public class FilteringRoleAnalysisSessionOptionWizardPanel extends AbstractFormW
     @SuppressWarnings("rawtypes")
     @Override
     protected boolean checkMandatory(@NotNull ItemWrapper itemWrapper) {
-        ItemName itemName = itemWrapper.getItemName();
-
-        if (itemName.equivalent(AbstractAnalysisSessionOptionType.F_QUERY)
-                || itemName.equivalent(AbstractAnalysisSessionOptionType.F_IS_INDIRECT)) {
-            return false;
-        }
-
-        return itemName.equivalent(AbstractAnalysisSessionOptionType.F_PROPERTIES_RANGE);
+        return false;
     }
 
     @Override
@@ -60,9 +53,12 @@ public class FilteringRoleAnalysisSessionOptionWizardPanel extends AbstractFormW
                     || itemName.equals(AbstractAnalysisSessionOptionType.F_MIN_MEMBERS_COUNT)
                     || itemName.equals(AbstractAnalysisSessionOptionType.F_SIMILARITY_THRESHOLD)
                     || itemName.equals(AbstractAnalysisSessionOptionType.F_CLUSTERING_ATTRIBUTE_SETTING)
-                    || itemName.equals(AbstractAnalysisSessionOptionType.F_ANALYSIS_ATTRIBUTE_SETTING)
+                    || itemName.equals(AbstractAnalysisSessionOptionType.F_USER_ANALYSIS_ATTRIBUTE_SETTING)
                     || itemName.equals(AbstractAnalysisSessionOptionType.F_DETAILED_ANALYSIS)
-                    || itemName.equals(AbstractAnalysisSessionOptionType.F_MAX_DISTANCE)) {
+                    || itemName.equals(AbstractAnalysisSessionOptionType.F_MIN_ACCESS_POPULARITY)
+                    || itemName.equals(AbstractAnalysisSessionOptionType.F_MAX_ACCESS_POPULARITY)
+                    || itemName.equals(AbstractAnalysisSessionOptionType.F_MIN_USERS_POPULARITY)
+                    || itemName.equals(AbstractAnalysisSessionOptionType.F_MAX_USERS_POPULARITY)) {
                 return ItemVisibility.HIDDEN;
             }
 

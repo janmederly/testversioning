@@ -30,6 +30,7 @@ import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.web.util.OnePageParameterEncoder;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
+import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.behavior.Behavior;
@@ -125,6 +126,7 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
 
         };
         table.setOutputMarkupId(true);
+        table.setItemsPerPage(50);
         tableContainer.add(table);
         add(tableContainer);
 
@@ -145,9 +147,12 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
 
         WebMarkupContainer footer2 = createColumnsNavigation(table);
         add(footer2);
+        add(new AttributeModifier("class", "d-flex flex-column w-100"));
+        add(new AttributeModifier("style", "height: calc(100vh - 200px);"));
     }
 
     //TODO check
+
     /**
      * Checks if the size of the main mining chunk has changed and if so, updates the data table columns accordingly.
      * This method is used to ensure that the data table columns are always in sync with the main mining chunk.
@@ -416,6 +421,7 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
                 return RoleAnalysisTable.this.getSelectedPatterns();
             }
 
+            @Override
             protected int getColumnCount() {
                 return getModelObject().getMainMiningChunk().size();
             }
@@ -553,7 +559,7 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
     }
 
     @Override
-    public void setCurrentPage(ObjectPaging paging) {
+    public void setCurrentPageAndSort(ObjectPaging paging) {
         WebComponentUtil.setCurrentPage(this, paging);
     }
 
@@ -590,11 +596,10 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
 
     protected boolean getMigrationButtonVisibility() {
         Set<RoleAnalysisCandidateRoleType> candidateRole = getCandidateRole();
-        if (candidateRole != null) {
-            if (candidateRole.size() > 1) {
-                return false;
-            }
+        if (candidateRole != null && candidateRole.size() > 1) {
+            return false;
         }
+
         if (getSelectedPatterns().size() > 1) {
             return false;
         }
@@ -624,7 +629,7 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
 
     }
 
-    public List<String> getCandidateRoleContainerId() {
+    public @Nullable List<String> getCandidateRoleContainerId() {
         StringValue stringValue = getPageBase().getPageParameters().get(PARAM_CANDIDATE_ROLE_ID);
         if (!stringValue.isNull()) {
             String[] split = stringValue.toString().split(",");
@@ -652,12 +657,14 @@ public class RoleAnalysisTable<B extends MiningBaseTypeChunk, A extends MiningBa
 //    }
 
     protected void loadDetectedPattern(AjaxRequestTarget target) {
+        //override in subclass
     }
 
     //TODO check. When pattern is detected during user-permission table manipulation,
     // it is necessary to refresh operation panel, because new discovered
     // pattern is not part of the current operation panel model (TBD include or not).
     protected void onUniquePatternDetectionPerform(AjaxRequestTarget target) {
+        //override in subclass
     }
 
 }

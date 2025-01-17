@@ -9,8 +9,6 @@ package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.tmp.modes;
 
 import org.jetbrains.annotations.NotNull;
 
-import com.evolveum.midpoint.gui.api.model.LoadableModel;
-import com.evolveum.midpoint.gui.api.prism.wrapper.PrismObjectWrapper;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.tmp.context.AbstractRoleAnalysisConfiguration;
 import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
 import com.evolveum.midpoint.schema.result.OperationResult;
@@ -27,7 +25,7 @@ public class BirthrightCoverageModeConfiguration extends AbstractRoleAnalysisCon
 
     public BirthrightCoverageModeConfiguration(
             RoleAnalysisService service,
-            LoadableModel<PrismObjectWrapper<RoleAnalysisSessionType>> objectWrapper,
+            RoleAnalysisSessionType objectWrapper,
             Task task,
             OperationResult result) {
         super(objectWrapper);
@@ -39,24 +37,18 @@ public class BirthrightCoverageModeConfiguration extends AbstractRoleAnalysisCon
     @Override
     public void updateConfiguration() {
         int maxPropertyCount = getMaxPropertyCount();
-        RangeType propertyRange = new RangeType()
-                .min(2.0)
-                .max((double) maxPropertyCount);
 
         int minOverlap = 0;
         if (maxPropertyCount != 0) {
             minOverlap = (int) Math.round(maxPropertyCount * defaultPercentageMembership / 100);
         }
 
-        updatePrimaryOptions(null,
+        updatePrimaryOptions(null,null, null,
                 false,
-                propertyRange,
                 getDefaultAnalysisAttributes(),
                 null,
                 70.0,
-                5,
-                minOverlap,
-                false);
+                5, minOverlap, false);
 
         updateDetectionOptions(5,
                 2,
@@ -64,7 +56,9 @@ public class BirthrightCoverageModeConfiguration extends AbstractRoleAnalysisCon
                 new RangeType()
                         .min(30.0)
                         .max(100.0),
-                RoleAnalysisDetectionProcessType.FULL);
+                RoleAnalysisDetectionProcessType.FULL,
+                null,
+                null);
     }
 
     public @NotNull Integer getMaxPropertyCount() {
@@ -81,9 +75,5 @@ public class BirthrightCoverageModeConfiguration extends AbstractRoleAnalysisCon
             maxPropertiesObjects = 1000000;
         }
         return maxPropertiesObjects;
-    }
-
-    public @NotNull Integer getMinPropertyCount(Integer maxPropertiesObjects) {
-        return maxPropertiesObjects < 10 ? 1 : 10;
     }
 }

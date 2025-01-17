@@ -19,7 +19,7 @@ import com.evolveum.midpoint.common.mining.objects.chunk.MiningOperationChunk;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningRoleTypeChunk;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningUserTypeChunk;
 import com.evolveum.midpoint.common.mining.objects.detection.DetectedPattern;
-import com.evolveum.midpoint.common.mining.objects.detection.DetectionOption;
+import com.evolveum.midpoint.common.mining.objects.detection.PatternDetectionOption;
 import com.evolveum.midpoint.common.mining.objects.statistic.ClusterStatistic;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisSortMode;
 import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
@@ -124,27 +124,34 @@ public class DefaultPatternResolver {
         RoleAnalysisOptionType analysisOption = session.getAnalysisOption();
         RoleAnalysisProcessModeType mode = analysisOption.getProcessMode();
 
-        SearchFilterType filter = null;
-        if(mode.equals(RoleAnalysisProcessModeType.ROLE)){
+        SearchFilterType userSearchFilter = null;
+        SearchFilterType roleSearchFilter = null;
+        SearchFilterType assignmentSearchFilter = null;
+        if (mode.equals(RoleAnalysisProcessModeType.ROLE)) {
             RoleAnalysisSessionOptionType roleModeOptions = session.getRoleModeOptions();
-            if(roleModeOptions != null){
-                filter = roleModeOptions.getQuery();
+            if (roleModeOptions != null) {
+                userSearchFilter = roleModeOptions.getUserSearchFilter();
+                roleSearchFilter = roleModeOptions.getRoleSearchFilter();
+                assignmentSearchFilter = roleModeOptions.getAssignmentSearchFilter();
             }
-        }else if(mode.equals(RoleAnalysisProcessModeType.USER)){
+        } else if (mode.equals(RoleAnalysisProcessModeType.USER)) {
             UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
-            if(userModeOptions != null){
-                filter = userModeOptions.getQuery();
+            if (userModeOptions != null) {
+                userSearchFilter = userModeOptions.getUserSearchFilter();
+                roleSearchFilter = userModeOptions.getRoleSearchFilter();
+                assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
             }
         }
 
-        MiningOperationChunk miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(
-                clusterType, filter, false, roleAnalysisProcessModeType, operationResult, task);
+        MiningOperationChunk miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(clusterType,
+                userSearchFilter, roleSearchFilter, assignmentSearchFilter,
+                false, roleAnalysisProcessModeType, operationResult, task);
         List<MiningRoleTypeChunk> miningRoleTypeChunks = miningOperationChunk.getMiningRoleTypeChunks(
                 RoleAnalysisSortMode.NONE);
         List<MiningUserTypeChunk> miningUserTypeChunks = miningOperationChunk.getMiningUserTypeChunks(
                 RoleAnalysisSortMode.NONE);
 
-        DetectionOption roleAnalysisSessionDetectionOptionType = loadDetectionOption(session.getDefaultDetectionOption());
+        PatternDetectionOption roleAnalysisSessionDetectionOptionType = loadPatternDetectionOption(session.getDefaultDetectionOption());
 
         possibleBusinessRole = new DefaultDetectionAction(roleAnalysisSessionDetectionOptionType)
                 .executeDetection(miningRoleTypeChunks, miningUserTypeChunks, mode);

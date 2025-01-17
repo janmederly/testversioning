@@ -7,7 +7,6 @@
 package com.evolveum.midpoint.model.impl.lens;
 
 import java.util.*;
-import java.util.Map.Entry;
 import java.util.function.Consumer;
 
 import javax.xml.datatype.XMLGregorianCalendar;
@@ -29,6 +28,7 @@ import com.evolveum.midpoint.model.impl.sync.action.UnlinkAction;
 import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.prism.delta.*;
 import com.evolveum.midpoint.prism.path.ItemName;
+import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.prism.polystring.PolyString;
 import com.evolveum.midpoint.schema.CapabilityUtil;
 import com.evolveum.midpoint.schema.DeltaConvertor;
@@ -228,7 +228,8 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
     private boolean doReconciliation;
 
     /**
-     * false if the context should be not taken into the account while synchronizing changes from other resource
+     * False if the context should be not taken into the account while synchronizing changes from other resource - when using
+     * "limit propagation" option.
      */
     private boolean canProject = true;
 
@@ -279,7 +280,7 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
      * - Source: ConsolidationProcessor
      * - Target: ReconciliationProcessor
      */
-    private transient Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>, PrismPropertyDefinition<?>>>> squeezedAttributes;
+    private transient Map<QName, DeltaSetTriple<ItemValueWithOrigin<?, ?>>> squeezedAttributes;
     private transient Map<QName, DeltaSetTriple<ItemValueWithOrigin<ShadowAssociationValue, ShadowAssociationDefinition>>> squeezedAssociations;
     private transient Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<QName>, PrismPropertyDefinition<QName>>>> squeezedAuxiliaryObjectClasses;
 
@@ -295,6 +296,11 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
     /** This definition is always immutable. */
     private transient CompositeObjectDefinition compositeObjectDefinition;
 
+    /**
+     * Security policy for given projection; derived from the resource object type definition.
+     *
+     * *Limitation: Currently does NOT include global security policy.*
+     */
     private SecurityPolicyType projectionSecurityPolicy;
 
     /**
@@ -893,9 +899,25 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
         if (isFullShadow()) {
             return ItemLoadedStatus.FULL_SHADOW;
         } else if (!isCachedShadowsUseAllowed()) {
-            return ItemLoadedStatus.NOT_ALLOWED;
+            return ItemLoadedStatus.USE_OF_CACHED_NOT_ALLOWED;
         } else {
             return null; // Let's look at the status of the specific item
+        }
+    }
+
+    public boolean isItemLoaded(@NotNull ItemPath path) throws SchemaException, ConfigurationException {
+        if (path.startsWith(ShadowType.F_ATTRIBUTES)) {
+            return isAttributeLoaded(path.rest().asSingleNameOrFail());
+        } else if (path.startsWith(ShadowType.F_ASSOCIATIONS)) {
+            return isAssociationLoaded(path.rest().asSingleNameOrFail());
+        } else if (path.startsWith(ShadowType.F_ACTIVATION)) {
+            return isActivationLoaded();
+        } else if (path.startsWith(SchemaConstants.PATH_PASSWORD)) {
+            return isPasswordValueLoaded();
+        } else if (path.equivalent(ShadowType.F_AUXILIARY_OBJECT_CLASS)) {
+            return isAuxiliaryObjectClassPropertyLoaded();
+        } else {
+            return isFullShadow();
         }
     }
 
@@ -959,7 +981,12 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
      * (in the {@link #isFullShadow()} sense) or it must be cached *and* the use of cache for computations
      * must be allowed.
      */
-    public boolean isAttributeLoaded(QName attrName) throws SchemaException, ConfigurationException {
+    public boolean isAttributeLoaded(@NotNull QName attrName) throws SchemaException, ConfigurationException {
+        return isAttributeLoaded(attrName, null);
+    }
+
+    public boolean isAttributeLoaded(@NotNull QName attrName, @Nullable ShadowAttributeDefinition<?, ?, ?, ?> attrDefOverride)
+            throws SchemaException, ConfigurationException {
         ItemLoadedStatus status;
         var generic = getGenericItemLoadedAnswer();
         if (generic != null) {
@@ -970,6 +997,7 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
                             ItemName.fromQName(attrName),
                             getObjectCurrent(),
                             getCompositeObjectDefinitionRequired(),
+                            attrDefOverride,
                             getCurrentTime()));
         }
         LOGGER.trace("Attribute '{}' loaded status: {}", attrName, status);
@@ -1022,11 +1050,11 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
         this.evaluatedPlainConstruction = evaluatedPlainConstruction;
     }
 
-    public Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>,PrismPropertyDefinition<?>>>> getSqueezedAttributes() {
+    public Map<QName, DeltaSetTriple<ItemValueWithOrigin<?, ?>>> getSqueezedAttributes() {
         return squeezedAttributes;
     }
 
-    public void setSqueezedAttributes(Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>,PrismPropertyDefinition<?>>>> squeezedAttributes) {
+    public void setSqueezedAttributes(Map<QName, DeltaSetTriple<ItemValueWithOrigin<?, ?>>> squeezedAttributes) {
         this.squeezedAttributes = squeezedAttributes;
     }
 
@@ -1507,12 +1535,12 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
         clone.synchronizationSource = this.synchronizationSource;
     }
 
-    private Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>,PrismPropertyDefinition<?>>>> cloneSqueezedAttributes() {
+    private Map<QName, DeltaSetTriple<ItemValueWithOrigin<?, ?>>> cloneSqueezedAttributes() {
         if (squeezedAttributes == null) {
             return null;
         }
-        Map<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>,PrismPropertyDefinition<?>>>> clonedMap = new HashMap<>();
-        for (Entry<QName, DeltaSetTriple<ItemValueWithOrigin<PrismPropertyValue<?>,PrismPropertyDefinition<?>>>> entry: squeezedAttributes.entrySet()) {
+        Map<QName, DeltaSetTriple<ItemValueWithOrigin<?, ?>>> clonedMap = new HashMap<>();
+        for (var entry: squeezedAttributes.entrySet()) {
             clonedMap.put(entry.getKey(), entry.getValue().clone(ItemValueWithOrigin::clone));
         }
         return clonedMap;
@@ -1614,7 +1642,7 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
             sb.append(", shadow-only (not full) ");
             var current = getObjectCurrent();
             if (current != null) {
-                ResourceObjectDefinition definition = null;
+                ResourceObjectDefinition definition;
                 try {
                     definition = getStructuralObjectDefinition();
                     if (definition == null) {
@@ -1866,8 +1894,7 @@ public class LensProjectionContext extends LensElementContext<ShadowType> implem
             return false;
         }
         // Maintenance mode means the fetchResult is PARTIAL_ERROR (since 4.7).
-        OperationResultType fetchResult = loadedShadow.getFetchResult();
-        OperationResultStatusType status = fetchResult != null ? fetchResult.getStatus() : null;
+        var status = ObjectTypeUtil.getFetchStatus(loadedShadow);
         boolean full = // TODO what about other kinds of status? [e.g. in-progress]
                 status != OperationResultStatusType.PARTIAL_ERROR
                         && status != OperationResultStatusType.FATAL_ERROR;

@@ -146,7 +146,7 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
         }
 
         // [EP:M:OM] DONE as the mapping obviously belong to the resource
-        List<MappingType> outboundMappingBeans = objectDefinition.getPasswordOutbound();
+        List<MappingType> outboundMappingBeans = objectDefinition.getPasswordOutboundMappings();
         if (outboundMappingBeans.isEmpty()) {
             LOGGER.trace("No outbound password mapping for {}, skipping credentials processing", key);
             return;
@@ -319,6 +319,7 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
         return false;
     }
 
+    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     private boolean canGetCleartext(Collection<PrismPropertyValue<ProtectedStringType>> pvals) {
         if (pvals == null) {
             return false;
@@ -337,19 +338,19 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
         if (CapabilityUtil.isPasswordReadable(credentialsCapabilityType)) {
             return true;
         }
-        // Password not readable. Therefore evaluate weak mappings only during add operaitons.
+        // Password not readable. Therefore evaluate weak mappings only during add operations.
         // We do not know whether there is a password already set on the resource. And we do not
         // want to overwrite it every time.
         return projCtx.isAdd();
     }
 
-    private <F extends FocusType> void validateProjectionPassword(
+    private void validateProjectionPassword(
             LensProjectionContext projectionContext,
             SecurityPolicyType securityPolicy,
             XMLGregorianCalendar now,
             Task task,
             OperationResult result)
-                    throws ExpressionEvaluationException, ObjectNotFoundException, SchemaException, PolicyViolationException,
+            throws ExpressionEvaluationException, ObjectNotFoundException, SchemaException, PolicyViolationException,
             CommunicationException, ConfigurationException, SecurityViolationException {
 
         if (securityPolicy == null) {
@@ -359,7 +360,7 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
 
         ObjectDelta<ShadowType> accountDelta = projectionContext.getCurrentDelta();
 
-        if (accountDelta == null){
+        if (accountDelta == null) {
             LOGGER.trace("Skipping processing password policies. Shadow delta not specified.");
             return;
         }
@@ -379,14 +380,14 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
         if (accountDelta.isModify() || password == null) {
             PropertyDelta<ProtectedStringType> passwordValueDelta =
                     accountDelta.findPropertyDelta(SchemaConstants.PATH_PASSWORD_VALUE);
-            // Modification sanity check
-            if (accountDelta.getChangeType() == ChangeType.MODIFY && passwordValueDelta != null
-                    && (passwordValueDelta.isAdd() || passwordValueDelta.isDelete())) {
-                throw new SchemaException("Shadow password value cannot be added or deleted, it can only be replaced");
-            }
             if (passwordValueDelta == null) {
                 LOGGER.trace("Skipping processing password policies. Shadow delta does not contain password change.");
                 return;
+            }
+            // Modification sanity check
+            if (accountDelta.getChangeType() == ChangeType.MODIFY
+                    && (passwordValueDelta.isAdd() || passwordValueDelta.isDelete())) {
+                throw new SchemaException("Shadow password value cannot be added or deleted, it can only be replaced");
             }
             password = (PrismProperty<ProtectedStringType>) passwordValueDelta.getItemNewMatchingPath(null);
         }
@@ -395,7 +396,7 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
             accountShadow = projectionContext.getObjectNew();
         }
 
-        String passwordValue = determinePasswordValue(password);
+        String passwordValue = determinePasswordClearValue(password);
 
         ObjectValuePolicyEvaluator objectValuePolicyEvaluator = new ObjectValuePolicyEvaluator.Builder()
                 .now(now)
@@ -409,10 +410,9 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
                 .build();
         OperationResult validationResult = objectValuePolicyEvaluator.validateStringValue(passwordValue, result);
 
-//        boolean isValid = valuePolicyProcessor.validateValue(passwordValue, securityPolicy, getOriginResolver(accountShadow), "projection password policy", task, result);
-
         if (!validationResult.isSuccess()) {
-            LOGGER.debug("Password for projection {} is not valid (policy={}): {}", projectionContext.getHumanReadableName(), securityPolicy, validationResult.getUserFriendlyMessage());
+            LOGGER.debug("Password for projection {} is not valid (policy={}): {}",
+                    projectionContext.getHumanReadableName(), securityPolicy, validationResult.getUserFriendlyMessage());
             result.computeStatus();
             throw new PolicyViolationException(
                     new LocalizableMessageBuilder()
@@ -492,34 +492,30 @@ public class ProjectionCredentialsProcessor implements ProjectorProcessor {
         }
     }
 
-    // On missing password this returns empty string (""). It is then up to password policy whether it allows empty passwords or not.
-    private String determinePasswordValue(PrismProperty<ProtectedStringType> password) {
-        if (password == null || password.getValue(ProtectedStringType.class) == null) {
-            return null;
-        }
-
-        ProtectedStringType passValue = password.getRealValue();
-
-        return determinePasswordValue(passValue);
+    private String determinePasswordClearValue(PrismProperty<ProtectedStringType> password) {
+        var prismValue = password != null ? password.getValue(ProtectedStringType.class) : null;
+        var realValue = prismValue != null ? prismValue.getRealValue() : null;
+        return determinePasswordClearValue(realValue);
     }
 
-    private String determinePasswordValue(ProtectedStringType passValue) {
+    private String determinePasswordClearValue(ProtectedStringType passValue) {
         if (passValue == null) {
             return null;
         }
 
-        String passwordStr = passValue.getClearValue();
-
-        if (passwordStr == null && passValue.getEncryptedDataType () != null) {
+        String clearValue = passValue.getClearValue();
+        if (clearValue != null) {
+            return clearValue;
+        } else if (passValue.isEncrypted()) {
             // TODO: is this appropriate handling???
             try {
-                passwordStr = protector.decryptString(passValue);
+                return protector.decryptString(passValue);
             } catch (EncryptionException ex) {
                 throw new SystemException("Failed to process password for focus: " + ex.getMessage(), ex);
             }
+        } else {
+            return null;
         }
-
-        return passwordStr;
     }
 
     private void checkExistingDeltaSanity(LensProjectionContext projCtx,

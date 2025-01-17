@@ -15,6 +15,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
+import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.extensions.markup.html.repeater.data.grid.ICellPopulator;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.AbstractColumn;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.IColumn;
@@ -194,7 +195,9 @@ public class FocusProjectionsPanel<F extends FocusType> extends AbstractObjectMa
 
                     @Override
                     protected IColumn<PrismContainerValueWrapper<ShadowType>, String> createNameColumn(IModel<String> displayModel, GuiObjectColumnType customColumn, ExpressionType expression) {
-                        return createProjectionNameColumn(displayModel, customColumn, expression);
+                        return createProjectionNameColumn(
+                                displayModel == null ? createStringResource("ObjectType.name") : displayModel,
+                                customColumn, expression);
                     }
 
                     @Override
@@ -531,11 +534,18 @@ public class FocusProjectionsPanel<F extends FocusType> extends AbstractObjectMa
             }
         });
 
-        columns.add(new AbstractColumn<>(Model.of("")) {
+        columns.add(new AbstractColumn<>(getPageBase().createStringResource("FocusProjectionsPanel.column.badges.header")) {
 
             @Override
             public void populateItem(Item<ICellPopulator<PrismContainerValueWrapper<ShadowType>>> item, String id, IModel<PrismContainerValueWrapper<ShadowType>> model) {
                 item.add(new BadgeListPanel(id, createBadgeListModel(model)));
+            }
+
+            @Override
+            public Component getHeader(String componentId) {
+                Component header = super.getHeader(componentId);
+                header.add(AttributeAppender.append("class", "sr-only"));
+                return header;
             }
         });
         return columns;

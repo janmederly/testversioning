@@ -11,6 +11,8 @@ import javax.xml.namespace.QName;
 
 import com.evolveum.midpoint.gui.api.component.result.Toast;
 import com.evolveum.midpoint.gui.api.util.GuiDisplayTypeUtil;
+import com.evolveum.midpoint.gui.impl.component.search.wrapper.AbstractSearchItemWrapper;
+import com.evolveum.midpoint.gui.impl.component.search.wrapper.FilterableSearchItemWrapper;
 import com.evolveum.midpoint.gui.impl.page.admin.abstractrole.component.TaskAwareExecutor;
 import com.evolveum.midpoint.web.component.menu.top.LocaleTopMenuPanel;
 
@@ -25,6 +27,7 @@ import org.apache.wicket.extensions.ajax.markup.html.modal.ModalDialog;
 import org.apache.wicket.feedback.FeedbackMessage;
 import org.apache.wicket.feedback.FeedbackMessages;
 import org.apache.wicket.markup.head.IHeaderResponse;
+import org.apache.wicket.markup.head.OnDomReadyHeaderItem;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.WebPage;
 import org.apache.wicket.markup.html.basic.Label;
@@ -146,6 +149,9 @@ public abstract class PageBase extends PageAdminLTE {
                     .title(getString("PageBase.nonActiveSubscription"))
                     .body(getString("PageBase.nonActiveSubscriptionAndGenericRepo"))
                     .show(response);
+        }
+        if (isUserStatusVisible()) {
+            response.render(OnDomReadyHeaderItem.forScript("MidPointTheme.initPushMenuButton();"));
         }
     }
 
@@ -380,6 +386,9 @@ public abstract class PageBase extends PageAdminLTE {
         cartLink.add(new VisibleBehaviour(() -> getPage() instanceof PageRequestAccess || !getSessionStorage().getRequestAccess().getShoppingCartAssignments().isEmpty()));
         mainHeader.add(cartLink);
 
+        cartLink.add(AttributeAppender.append("title", createStringResource("PageBase.cartLink")));
+        cartLink.add(AttributeAppender.append("aria-label", createStringResource("PageBase.cartLink")));
+
         Label cartCount = new Label(ID_CART_COUNT, () -> {
             List list = getSessionStorage().getRequestAccess().getShoppingCartAssignments();
             return list.isEmpty() ? null : list.size();
@@ -513,7 +522,11 @@ public abstract class PageBase extends PageAdminLTE {
     }
 
     private VisibleBehaviour createUserStatusBehaviour() {
-        return new VisibleBehaviour(() -> !isErrorPage() && isSideMenuVisible());
+        return new VisibleBehaviour(() -> isUserStatusVisible());
+    }
+
+    private boolean isUserStatusVisible() {
+        return !isErrorPage() && isSideMenuVisible();
     }
 
     protected boolean isSideMenuVisible() {
@@ -1076,5 +1089,23 @@ public abstract class PageBase extends PageAdminLTE {
 
     public TaskAwareExecutor taskAwareExecutor(@NotNull AjaxRequestTarget target, @NotNull String operationName) {
         return new TaskAwareExecutor(this, target, operationName);
+    }
+
+    @Override
+    public void changeLocal(AjaxRequestTarget target) {
+        super.changeLocal(target);
+        getSessionStorage().getPageStorageMap().values()
+                .forEach(pageStorage -> {
+                    if (pageStorage.getSearch() == null) {
+                        return;
+                    }
+                    pageStorage.getSearch().getItems().forEach(item -> {
+                        if (item instanceof AbstractSearchItemWrapper<?> searchItem) {
+                            searchItem.getTitle().detach();
+                            searchItem.getName().detach();
+                            searchItem.getHelp().detach();
+                        }
+                    });
+                });
     }
 }

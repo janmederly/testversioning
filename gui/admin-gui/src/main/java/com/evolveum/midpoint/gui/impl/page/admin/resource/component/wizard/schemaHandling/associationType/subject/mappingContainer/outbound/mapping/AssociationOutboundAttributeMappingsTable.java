@@ -15,9 +15,9 @@ import java.util.stream.Collectors;
 import com.evolveum.midpoint.gui.api.prism.wrapper.*;
 
 import com.evolveum.midpoint.gui.api.util.MappingDirection;
-import com.evolveum.midpoint.gui.impl.component.input.Select2MultiChoicePanel;
+import com.evolveum.midpoint.gui.impl.component.input.Select2MultiChoiceColumnPanel;
 import com.evolveum.midpoint.gui.impl.component.input.FocusDefinitionsMappingProvider;
-import com.evolveum.midpoint.gui.impl.page.admin.resource.component.wizard.schemaHandling.objectType.attributeMapping.AttributeMappingsTable;
+import com.evolveum.midpoint.gui.impl.page.admin.resource.component.wizard.schemaHandling.objectType.attribute.mapping.AttributeMappingsTable;
 import com.evolveum.midpoint.gui.impl.prism.wrapper.PrismPropertyValueWrapper;
 import com.evolveum.midpoint.gui.impl.prism.wrapper.PrismValueWrapperImpl;
 import com.evolveum.midpoint.prism.Containerable;
@@ -178,7 +178,7 @@ public abstract class AssociationOutboundAttributeMappingsTable extends Attribut
                 } else {
                     provider = new FocusDefinitionsMappingProvider((IModel<PrismPropertyWrapper<VariableBindingDefinitionType>>) rowModel);
                 }
-                return new Select2MultiChoicePanel<>(componentId, multiselectModel, provider);
+                return new Select2MultiChoiceColumnPanel<>(componentId, multiselectModel, provider);
             }
 
             @Override

@@ -12,7 +12,10 @@ import javax.xml.datatype.XMLGregorianCalendar;
 
 import com.evolveum.midpoint.prism.*;
 
+import com.evolveum.midpoint.prism.delta.ChangeType;
 import com.evolveum.midpoint.prism.polystring.PolyString;
+
+import com.evolveum.midpoint.xml.ns._public.common.common_3.ArchetypeType;
 
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
@@ -57,6 +60,66 @@ public abstract class AbstractPersonaTest extends AbstractInitializedModelIntegr
     }
 
     protected abstract File getPersonaObjectTemplateFile();
+
+    /** Testing simulation of persona assignment. Personal links should not be created in the repo. MID-10080. */
+    @Test
+    public void test090AssignRolePersonaAdminToJackSimulated() throws Exception {
+        Task task = getTestTask();
+        OperationResult result = task.getResult();
+
+        skipIfNotNativeRepository();
+
+        when("persona role is added in the simulation mode");
+        var simResult =
+                executeInProductionSimulationMode(
+                null, task, result,
+                () -> assignRole(USER_JACK_OID, ROLE_PERSONA_ADMIN.oid, task, result));
+
+        then("no personaRef should be created");
+        assertSuccess(result);
+        assertPersonaLinks(getUser(USER_JACK_OID), 0); // simulations -> no persona refs should be added
+
+        and("simulation result should be OK: 1 user added, 1 modified");
+        assertProcessedObjects(simResult, "after")
+                .by().objectType(UserType.class).changeType(ChangeType.ADD).find(
+                        a -> a.delta()
+                                .objectToAdd()
+                                .asUser()
+                                .assertName("a-jack")
+                                .assignments()
+                                .single()
+                                .assertTargetOid(ARCHETYPE_ADMIN.oid)
+                                .assertTargetType(ArchetypeType.COMPLEX_TYPE)
+                                .end().end().end().end().end())
+                .by().objectType(UserType.class).changeType(ChangeType.MODIFY).find(
+                        a -> a.delta()
+                                .assertModified(UserType.F_ASSIGNMENT) // personaRef is not simulated now; see MID-10100
+                                .end())
+                .assertSize(2);
+    }
+
+    /**
+     * As {@link #test090AssignRolePersonaAdminToJackSimulated()} but using preview changes (to work on generic repo as well).
+     *
+     * MID-10080.
+     */
+    @Test
+    public void test095AssignRolePersonaAdminToJackPreview() throws Exception {
+        Task task = getTestTask();
+        OperationResult result = task.getResult();
+
+        when("persona role is added (preview changes)");
+        previewChanges(
+                deltaFor(UserType.class)
+                        .asObjectDelta(USER_JACK_OID),
+                null, task, result);
+
+        then("no personaRef should be created");
+        assertSuccess(result);
+        assertPersonaLinks(getUser(USER_JACK_OID), 0); // preview -> no persona refs should be added
+
+        // TODO we should somehow support two model contexts here (that we currently do not)
+    }
 
     @Test
     public void test100AssignRolePersonaAdminToJack() throws Exception {

@@ -1,6 +1,7 @@
 package com.evolveum.midpoint.common.mining.objects.analysis.cache;
 
 import com.evolveum.midpoint.common.mining.objects.analysis.AttributePathResult;
+import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisAttributeAnalysisResult;
 
 import com.google.common.collect.ListMultimap;
@@ -15,6 +16,7 @@ public class AttributeAnalysisCache {
     private RoleMemberAttributeAnalyseCache roleMemberAttributeCache;
     private MemberUserAttributeAnalysisCache memberUserCache;
     private ListMultimap<String, String> roleMemberCache;
+    private ListMultimap<String, String> userMemberCache;
     private final RoleMemberCountCache roleMemberCountCache;
 
     public AttributeAnalysisCache(UserAttributeAnalyseCache userCache,
@@ -36,7 +38,7 @@ public class AttributeAnalysisCache {
         this.roleMemberCountCache = new RoleMemberCountCache();
     }
 
-    public void putMemberUserAnalysisCache(String user, String key, AttributePathResult value) {
+    public void putMemberUserAnalysisCache(String user, ItemPath key, AttributePathResult value) {
         memberUserCache.putPathResult(user, key, value);
     }
 
@@ -52,11 +54,11 @@ public class AttributeAnalysisCache {
         return memberUserCache.getPathResult(user, key);
     }
 
-    public Map<String, AttributePathResult> getMemberUserAnalysisCache(String user) {
+    public Map<ItemPath, AttributePathResult> getMemberUserAnalysisCache(String user) {
         return memberUserCache.getUserResult(user);
     }
 
-    public void putMemberUserAnalysisCache(String user, Map<String, AttributePathResult> value) {
+    public void putMemberUserAnalysisCache(String user, Map<ItemPath, AttributePathResult> value) {
         memberUserCache.putUserResult(user, value);
     }
 
@@ -98,6 +100,14 @@ public class AttributeAnalysisCache {
 
     public void setRoleMemberCache(ListMultimap<String, String> roleMemberCache) {
         this.roleMemberCache = roleMemberCache;
+    }
+
+    public ListMultimap<String, String> getUserMemberCache() {
+        return userMemberCache;
+    }
+
+    public void setUserMemberCache(ListMultimap<String, String> userMemberCache) {
+        this.userMemberCache = userMemberCache;
     }
 
 }

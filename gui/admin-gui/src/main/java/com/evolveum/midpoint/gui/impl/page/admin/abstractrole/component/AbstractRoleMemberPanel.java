@@ -17,7 +17,10 @@ import com.evolveum.midpoint.gui.api.component.result.OpResult;
 import com.evolveum.midpoint.gui.impl.util.DetailsPageUtil;
 import com.evolveum.midpoint.gui.impl.util.IconAndStylesUtil;
 import com.evolveum.midpoint.gui.impl.util.RelationUtil;
+import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.web.component.dialog.*;
+
+import com.evolveum.midpoint.web.security.MidPointAuthWebSession;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -59,10 +62,6 @@ import com.evolveum.midpoint.gui.impl.page.admin.focus.FocusDetailsModels;
 import com.evolveum.midpoint.model.api.AssignmentCandidatesSpecification;
 import com.evolveum.midpoint.model.api.AssignmentObjectRelation;
 import com.evolveum.midpoint.model.api.authentication.CompiledObjectCollectionView;
-import com.evolveum.midpoint.prism.Containerable;
-import com.evolveum.midpoint.prism.PrismConstants;
-import com.evolveum.midpoint.prism.PrismContext;
-import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
 import com.evolveum.midpoint.prism.util.PolyStringUtils;
@@ -193,6 +192,15 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
     }
 
     private <AH extends AssignmentHolderType> Class<AH> getDefaultObjectTypeClass() {
+        ContainerPanelConfigurationType panelConfig = getPanelConfiguration();
+        if (panelConfig != null) {
+            CompiledObjectCollectionView view = WebComponentUtil.getCompiledObjectCollectionView(panelConfig.getListView(),
+                    panelConfig, getPageBase());
+            if (view != null && view.getTargetClass() != null
+                    && AssignmentHolderType.class.isAssignableFrom(view.getTargetClass())) {
+                return view.getTargetClass();
+            }
+        }
         return (Class<AH>) UserType.class;
     }
 
@@ -920,7 +928,8 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
                 @Override
                 protected IModel<String> getWarningMessageModel() {
                     if (isSubtreeScope()) {
-                        return getPageBase().createStringResource("abstractRoleMemberPanel.delete.warning.subtree");
+                        return getPageBase().createStringResource("abstractRoleMemberPanel.delete.warning.subtree"
+                                + getObjectTypeSpecificLocalizationKeySuffix());
                     }
                     return null;
                 }
@@ -975,7 +984,8 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
             @Override
             protected IModel<String> createWarningMessageModel() {
                 if (isSubtreeScope()) {
-                    return createStringResource("abstractRoleMemberPanel.recompute.warning.subtree");
+                    return createStringResource("abstractRoleMemberPanel.recompute.warning.subtree"
+                            + getObjectTypeSpecificLocalizationKeySuffix());
                 }
                 return null;
             }
@@ -1078,16 +1088,6 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
                                 relations,
                                 target);
                     }
-
-//                    @Override
-//                    protected IModel<String> getWarningMessageModel() {
-//                        if (isSubtreeScope()) {
-//                            return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.subtree");
-//                        } else if (isIndirect()) {
-//                            return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.indirect");
-//                        }
-//                        return null;
-//                    }
                 };
 
                 getPageBase().showMainPopup(chooseTypePopupContent, target);
@@ -1172,9 +1172,11 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
                 @Override
                 protected IModel<String> getWarningMessageModel() {
                     if (isSubtreeScope()) {
-                        return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.subtree");
+                        return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.subtree"
+                                + getObjectTypeSpecificLocalizationKeySuffix());
                     } else if (isIndirect()) {
-                        return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.indirect");
+                        return getPageBase().createStringResource("abstractRoleMemberPanel.unassign.warning.indirect"
+                                + getObjectTypeSpecificLocalizationKeySuffix());
                     }
                     return null;
                 }
@@ -1247,9 +1249,11 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
             @Override
             protected IModel<String> createWarningMessageModel() {
                 if (isSubtreeScope() && rowModel == null) {
-                    return createStringResource("abstractRoleMemberPanel.unassign.warning.subtree");
+                    return createStringResource("abstractRoleMemberPanel.unassign.warning.subtree"
+                            + getObjectTypeSpecificLocalizationKeySuffix());
                 } else if (isIndirect() && rowModel == null) {
-                    return createStringResource("abstractRoleMemberPanel.unassign.warning.indirect");
+                    return createStringResource("abstractRoleMemberPanel.unassign.warning.indirect"
+                            + getObjectTypeSpecificLocalizationKeySuffix());
                 }
                 return null;
             }
@@ -1634,10 +1638,6 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
         return getSessionStorage().getPageStorageMap().get(storageKey);
     }
 
-    private SessionStorage getSessionStorage() {
-        return getPageBase().getSessionStorage();
-    }
-
     protected String getStorageKeyTabSuffix() {
         return getPanelConfiguration().getIdentifier();
     }
@@ -1729,5 +1729,11 @@ public class AbstractRoleMemberPanel<R extends AbstractRoleType> extends Abstrac
                 buttonDescriptionsModel.getObject() != null ?
                 buttonDescriptionsModel.getObject().getAdditionalButtons() : null;
         return CollectionUtils.isNotEmpty(additionalButtons);
+    }
+
+    private String getObjectTypeSpecificLocalizationKeySuffix() {
+        String typeClass = getModelObject().getClass().getSimpleName();
+        // remove "Type" suffix
+        return "." + typeClass.substring(0, typeClass.length() - 4).toLowerCase();
     }
 }

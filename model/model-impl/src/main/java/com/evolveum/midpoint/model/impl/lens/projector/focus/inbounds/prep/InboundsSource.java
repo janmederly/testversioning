@@ -10,33 +10,29 @@ package com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep;
 import java.util.Collection;
 import java.util.List;
 
-import com.evolveum.midpoint.model.api.InboundSourceData;
-import com.evolveum.midpoint.model.api.context.ProjectionContextKey;
 import com.evolveum.midpoint.model.impl.lens.LensProjectionContext;
-import com.evolveum.midpoint.prism.delta.ContainerDelta;
-
-import com.evolveum.midpoint.prism.path.ItemName;
-import com.evolveum.midpoint.schema.config.InboundMappingConfigItem;
 import com.evolveum.midpoint.schema.processor.*;
-
-import com.evolveum.midpoint.schema.result.OperationResult;
-
-import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
-import com.evolveum.midpoint.util.DebugDumpable;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import com.evolveum.midpoint.model.api.identities.IdentityItemConfiguration;
 import com.evolveum.midpoint.model.common.mapping.MappingImpl;
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.InboundSourceData;
 import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.MappingEvaluationRequest;
 import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.StopProcessingProjectionException;
-import com.evolveum.midpoint.prism.*;
+import com.evolveum.midpoint.prism.Item;
+import com.evolveum.midpoint.prism.ItemDefinition;
+import com.evolveum.midpoint.prism.PrismValue;
+import com.evolveum.midpoint.prism.delta.ContainerDelta;
 import com.evolveum.midpoint.prism.delta.ItemDelta;
-import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.repo.common.expression.Source;
+import com.evolveum.midpoint.schema.config.InboundMappingConfigItem;
 import com.evolveum.midpoint.schema.expression.VariablesMap;
+import com.evolveum.midpoint.schema.result.OperationResult;
+import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
+import com.evolveum.midpoint.util.DebugDumpable;
 import com.evolveum.midpoint.util.DebugUtil;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.util.logging.Trace;
@@ -46,8 +42,11 @@ import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 /**
  * Source for the whole inbounds processing.
  *
- * Contains the resource object being processed plus the necessary surroundings,
- * like lens/projection context in the case of clockwork processing.
+ * Exists mainly to provide a common interface for the full a.k.a. clockwork-based processing ({@link FullInboundsSource})
+ * and all the exceptional cases (like inbounds for correlation - {@link LimitedInboundsSource}).
+ *
+ * Contains the {@link InboundSourceData} being processed plus the necessary surroundings,
+ * like inbound mapping beans, lens/projection context (in the case of clockwork processing), etc.
  *
  * There are a lot of abstract methods here, dealing with e.g. determining if the full shadow is (or has to be) loaded,
  * methods for fetching the entitlements, and so on.
@@ -57,45 +56,33 @@ public abstract class InboundsSource implements DebugDumpable {
     private static final Trace LOGGER = TraceManager.getTrace(InboundsSource.class);
 
     /**
-     * Current shadow object (in case of clockwork processing it may be full or repo-only, or maybe even null
-     * - e.g. when currentObject is null in projection context).
+     * Current input data, mostly shadow object (in case of clockwork processing it may be full or repo-only, or maybe even null
+     * - e.g. when currentObject is null in projection context). May contain a delta (sync or computed).
+     *
+     * It can be the association value as well.
      */
     @NotNull InboundSourceData sourceData;
 
-    /**
-     * A priori delta is a delta that was executed in a previous "step".
-     * That means it is either delta from a previous wave or a sync delta (in wave 0).
-     * Taken from {@link #sourceData} just for clarity.
-     */
-    @Nullable final ObjectDelta<ShadowType> aPrioriDelta;
+    /** Describes how to execute the inbound processing. */
+    @NotNull final ResourceObjectInboundProcessingDefinition inboundProcessingDefinition;
 
     @NotNull private final ResourceType resource;
 
-    /**
-     * For what object type we evaluate the mappings. Note that we are interested in the "top-level" type here: even if
-     * we are technically evaluating a mapping for `association/xyz` object type, we are interested in the type of (e.g.)
-     * `account/default` in which the association resides.
-     *
-     * Should be non-null in reasonable cases; only for really broken (unclassified, or without-resource)
-     * {@link LensProjectionContext}s it may be null. See the typology of projection contexts in {@link ProjectionContextKey}.
-     */
-    @Nullable private final ResourceObjectTypeIdentification typeIdentification;
+    /** Background information for value provenance metadata for related inbound mappings. */
+    @NotNull private final InboundMappingContextSpecification mappingContextSpecification;
 
     @NotNull final String humanReadableName;
 
-    @NotNull final ResourceObjectInboundDefinition inboundDefinition;
-
     InboundsSource(
             @NotNull InboundSourceData sourceData,
-            @NotNull ResourceObjectInboundDefinition inboundDefinition,
+            @NotNull ResourceObjectInboundProcessingDefinition inboundProcessingDefinition,
             @NotNull ResourceType resource,
-            @Nullable ResourceObjectTypeIdentification typeIdentification,
+            @NotNull InboundMappingContextSpecification mappingContextSpecification,
             @NotNull String humanReadableName) {
         this.sourceData = sourceData;
-        this.aPrioriDelta = sourceData.getAPrioriDelta();
-        this.inboundDefinition = inboundDefinition;
+        this.inboundProcessingDefinition = inboundProcessingDefinition;
         this.resource = resource;
-        this.typeIdentification = typeIdentification;
+        this.mappingContextSpecification = mappingContextSpecification;
         this.humanReadableName = humanReadableName;
     }
 
@@ -110,10 +97,6 @@ public abstract class InboundsSource implements DebugDumpable {
      */
     @NotNull ResourceType getResource() {
         return resource;
-    }
-
-    public @Nullable ResourceObjectTypeIdentification getTypeIdentification() {
-        return typeIdentification;
     }
 
     /** Returns human-readable name of the context, for logging/reporting purposes. */
@@ -140,55 +123,30 @@ public abstract class InboundsSource implements DebugDumpable {
      *
      * Currently relevant only for clockwork-based execution. But (maybe soon) we'll implement it also for
      * pre-mappings.
+     *
+     * For some reason, we are interested only in the sync and primary delta here.
+     * We ignore the synchronization decision, like in {@link LensProjectionContext#isDelete()}. (But why?)
      */
     @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     abstract boolean isProjectionBeingDeleted();
 
-    public abstract boolean isAttributeAvailable(ItemName itemName) throws SchemaException, ConfigurationException;
-    public abstract boolean isAssociationAvailable(ItemName itemName) throws SchemaException, ConfigurationException;
-    public abstract boolean isFullShadowAvailable();
+    public abstract boolean isItemLoaded(@NotNull ItemPath path) throws SchemaException, ConfigurationException;
+    public abstract boolean isFullShadowLoaded();
     public abstract boolean isShadowGone();
-    public abstract boolean isAuxiliaryObjectClassPropertyLoaded() throws SchemaException, ConfigurationException;
 
     /**
-     * Adds value metadata to values in the current item and in a-priori delta.
-     * Currently relevant only for clockwork processing.
+     * Adds value metadata to values in the current item and in a-priori delta. This is used for advanced metadata-aware
+     * scenarios.
      */
-    abstract <V extends PrismValue, D extends ItemDefinition<?>> void setValueMetadata(
+    <V extends PrismValue, D extends ItemDefinition<?>> void setValueMetadata(
             Item<V, D> currentProjectionItem, ItemDelta<V, D> itemAPrioriDelta, OperationResult result)
             throws CommunicationException, ObjectNotFoundException, SchemaException, SecurityViolationException,
-            ConfigurationException, ExpressionEvaluationException;
+            ConfigurationException, ExpressionEvaluationException {
+        // Currently relevant only for clockwork processing. Otherwise, it's a no-op.
+    }
 
     // TODO move to context
     abstract String getChannel();
-
-    /**
-     * Returns true if the mapping(s) for given item on this source should be skipped because of item restrictions
-     * or obviously missing data.
-     */
-    boolean isItemNotProcessable(
-            ItemPath itemPath, boolean executionModeVisible, boolean ignored, PropertyLimitations limitations) {
-        if (!executionModeVisible) {
-            LOGGER.trace("Inbound mapping(s) for {} will be skipped because the item is not visible in current execution mode",
-                    itemPath);
-            return true;
-        }
-        if (ignored) {
-            LOGGER.trace("Inbound mapping(s) for {} will be skipped because the item is ignored", itemPath);
-            return true;
-        }
-        if (limitations != null && !limitations.canRead()) {
-            LOGGER.warn("Skipping inbound mapping(s) for {} in {} because it is not readable",
-                    itemPath, getProjectionHumanReadableName());
-            return true;
-        }
-        if (sourceData.isEmpty() && sourceData.getItemAPrioriDelta(itemPath) == null) {
-            LOGGER.trace("Inbound mapping(s) for {} will be skipped because there is no shadow (not even repo version),"
-                    + "and no a priori delta for the item", itemPath);
-            return true;
-        }
-        return false;
-    }
 
     /**
      * Loads the full shadow, if appropriate conditions are fulfilled. See the implementation for details.
@@ -204,7 +162,8 @@ public abstract class InboundsSource implements DebugDumpable {
      */
     abstract void resolveInputEntitlements(
             ContainerDelta<ShadowAssociationValueType> associationAPrioriDelta,
-            ShadowAssociation currentAssociation);
+            ShadowAssociation currentAssociation,
+            OperationResult result);
 
     /**
      * Provides the `entitlement` variable for mapping evaluation.
@@ -244,7 +203,7 @@ public abstract class InboundsSource implements DebugDumpable {
     }
 
     private @Nullable DefaultInboundMappingEvaluationPhasesType getDefaultEvaluationPhases() {
-        return inboundDefinition.getDefaultInboundMappingEvaluationPhases();
+        return inboundProcessingDefinition.getDefaultInboundMappingEvaluationPhases();
     }
 
     abstract @NotNull InboundMappingEvaluationPhaseType getCurrentEvaluationPhase();
@@ -256,24 +215,8 @@ public abstract class InboundsSource implements DebugDumpable {
 
     abstract ItemPath determineTargetPathExecutionOverride(ItemPath targetItemPath) throws ConfigurationException, SchemaException;
 
-    public @NotNull Collection<? extends ShadowSimpleAttributeDefinition<?>> getSimpleAttributeDefinitions() {
-        return sourceData.getSimpleAttributeDefinitions();
-    }
-
-    @NotNull Collection<? extends ShadowReferenceAttributeDefinition> getObjectReferenceAttributeDefinitions() {
-        return sourceData.getReferenceAttributeDefinitions();
-    }
-
-    @NotNull Collection<? extends ShadowAssociationDefinition> getAssociationDefinitions() {
-        return sourceData.getAssociationDefinitions();
-    }
-
-    public @NotNull ResourceObjectInboundDefinition getInboundDefinition() {
-        return inboundDefinition;
-    }
-
-    public @Nullable ObjectDelta<ShadowType> getAPrioriDelta() {
-        return aPrioriDelta;
+    public @NotNull ResourceObjectInboundProcessingDefinition getInboundProcessingDefinition() {
+        return inboundProcessingDefinition;
     }
 
     public @NotNull InboundSourceData getSourceData() {
@@ -290,10 +233,15 @@ public abstract class InboundsSource implements DebugDumpable {
         throw new UnsupportedOperationException("Not implemented for " + this);
     }
 
-    public MappingSpecificationType createMappingSpec(@Nullable String mappingName) {
+    public MappingSpecificationType createMappingSpec(@Nullable String mappingName, @NotNull ItemDefinition<?> sourceDefinition) {
         return new MappingSpecificationType()
                 .mappingName(mappingName)
                 .definitionObjectRef(ObjectTypeUtil.createObjectRef(resource))
-                .objectType(ResourceObjectTypeIdentification.asBean(typeIdentification));
+                .objectType(mappingContextSpecification.typeIdentificationBean())
+                .associationType(
+                        sourceDefinition instanceof ShadowAssociationDefinition assocDef ?
+                                assocDef.getAssociationTypeName() :
+                                mappingContextSpecification.associationTypeName())
+                .tag(mappingContextSpecification.shadowTag());
     }
 }

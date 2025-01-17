@@ -638,6 +638,10 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
                 || (shadowItemsToReturn.isReturnDefaultAttributes() && validToReturnedByDefault())) {
             icfAttrsToGet.add(OperationalAttributes.DISABLE_DATE_NAME);
         }
+        if (shadowItemsToReturn.isReturnLastLoginTimestampExplicit()
+            || (shadowItemsToReturn.isReturnDefaultAttributes() && lastLoginTimestampReturnedByDefault())) {
+            icfAttrsToGet.add(PredefinedAttributes.LAST_LOGIN_DATE_NAME);
+        }
         for (var itemDef : MiscUtil.emptyIfNull(shadowItemsToReturn.getItemsToReturn())) {
             icfAttrsToGet.add(
                     ucfAttributeNameToConnId(itemDef));
@@ -678,6 +682,11 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
                 CapabilityUtil.getCapability(getCapabilities(), ActivationCapabilityType.class));
     }
 
+    private synchronized boolean lastLoginTimestampReturnedByDefault() {
+        return CapabilityUtil.isLastLoginTimestampReturnedByDefault(
+                CapabilityUtil.getCapability(getCapabilities(), BehaviorCapabilityType.class));
+    }
+
     private synchronized boolean supportsDeltaUpdateOp() {
         UpdateCapabilityType capability = CapabilityUtil.getCapability(getCapabilities(), UpdateCapabilityType.class);
         if (capability == null) {
@@ -691,7 +700,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
     }
 
     @Override
-    public UcfAddReturnValue addObject(
+    public @NotNull UcfAddReturnValue addObject(
             @NotNull PrismObject<? extends ShadowType> shadow,
             @NotNull SchemaAwareUcfExecutionContext ctx,
             @NotNull OperationResult parentResult)
@@ -702,13 +711,15 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
 
         validateShadowOnAdd(shadow);
 
+        Collection<ShadowSimpleAttribute<?>> identifiers;
+
         OperationResult result = parentResult.createSubresult(OP_ADD_OBJECT);
         result.addParam("resourceObject", shadow);
         try {
 
             var objDef = ShadowUtil.getResourceObjectDefinition(shadow.asObjectable());
 
-            var connIdInfo = connIdObjectConvertor.convertToConnIdObjectInfo(shadow.asObjectable());
+            var connIdInfo = connIdObjectConvertor.convertToConnIdObjectInfo(shadow.asObjectable(), false);
 
             OperationOptionsBuilder operationOptionsBuilder = new OperationOptionsBuilder();
             OperationOptions options = operationOptionsBuilder.build();
@@ -770,10 +781,8 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
                 throw new GenericFrameworkException("ConnId did not returned UID after create");
             }
 
-            var attributesContainer = ShadowUtil.getAttributesContainer(shadow.asObjectable());
-            for (var identifier : ConnIdUtil.convertToIdentifiers(uid, objDef, ctx.getResourceSchema())) {
-                attributesContainer.getValue().addReplaceExisting(identifier);
-            }
+            identifiers = ConnIdUtil.convertToIdentifiers(uid, objDef, ctx.getResourceSchema());
+
             connIdResult.recordSuccess();
         } catch (Throwable t) {
             result.recordException(t);
@@ -781,7 +790,9 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
         } finally {
             result.close();
         }
-        return UcfAddReturnValue.of(ShadowUtil.getSimpleAttributes(shadow), result);
+        return UcfAddReturnValue.fromResult(
+                List.copyOf(identifiers),
+                result);
     }
 
     private void validateShadowOnAdd(PrismObject<? extends ShadowType> shadow) throws SchemaException {
@@ -825,7 +836,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
             if (changes.isEmpty()) {
                 LOGGER.debug("No modifications for connector object specified. Skipping processing.");
                 result.recordNotApplicable();
-                return UcfModifyReturnValue.of(result);
+                return UcfModifyReturnValue.fromResult(List.of(), result);
             }
 
             UcfExecutionContext.checkExecutionFullyPersistent(ctx);
@@ -849,7 +860,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
     /**
      * Modifies object by using new delta update operations.
      */
-    private UcfModifyReturnValue modifyObjectDelta(
+    private @NotNull UcfModifyReturnValue modifyObjectDelta(
             ResourceObjectIdentification.WithPrimary identification,
             ObjectClass objClass,
             Uid uid,
@@ -931,9 +942,8 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
         }
         result.computeStatus();
 
-        Collection<PropertyModificationOperation<?>> knownExecutedOperations =
-                convertToExecutedOperations(knownExecutedChanges, identification, objectClassDef);
-        return UcfModifyReturnValue.of(knownExecutedOperations, result);
+        var knownExecutedOperations = convertToExecutedOperations(knownExecutedChanges, identification, objectClassDef);
+        return UcfModifyReturnValue.fromResult(knownExecutedOperations, result);
     }
 
     private Collection<PropertyModificationOperation<?>> convertToExecutedOperations(
@@ -984,7 +994,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
     /**
      * Modifies object by using old add/delete/replace attribute operations.
      */
-    private UcfModifyReturnValue modifyObjectUpdate(
+    private @NotNull UcfModifyReturnValue modifyObjectUpdate(
             ResourceObjectIdentification.WithPrimary identification,
             ObjectClass objClass,
             Uid uid,
@@ -1204,7 +1214,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
             sideEffectChanges.add(
                     new PropertyModificationOperation<>(uidDelta));
         }
-        return UcfModifyReturnValue.of(sideEffectChanges, result);
+        return UcfModifyReturnValue.fromResult(sideEffectChanges, result);
     }
 
     private PropertyDelta<?> createNameDelta(
@@ -1289,7 +1299,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
     }
 
     @Override
-    public UcfDeleteReturnValue deleteObject(
+    public @NotNull UcfDeleteResult deleteObject(
             @NotNull ResourceObjectIdentification<?> identification,
             @Nullable PrismObject<ShadowType> shadow,
             @NotNull UcfExecutionContext ctx,
@@ -1357,8 +1367,7 @@ class ConnectorInstanceConnIdImpl implements ConnectorInstance, ConnectorContext
         } finally {
             result.close();
         }
-
-        return UcfDeleteReturnValue.of(result);
+        return UcfDeleteResult.fromResult(result);
     }
 
     @Override

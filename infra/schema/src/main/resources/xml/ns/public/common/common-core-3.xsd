@@ -491,11 +491,30 @@
             <xsd:element name="effectiveMarkRef" type="tns:ObjectReferenceType" minOccurs="0" maxOccurs="unbounded">
                 <xsd:annotation>
                     <xsd:documentation>
-                       Object marks assigned to the shadow. When stored in the repository, this includes appied policy statements.
+                        Effective object marks for this object.
+
+                        When stored in the repository, this includes computed marks (for shadows by the marking mechanism,
+                        and for other objects by the policy rules), as well as applied policy statements.
+
+                        Conditions that these values hold:
+
+                        1. They always have an OID.
+
+                        2. For shadows: They have either a default relation, or `org:related` one. The latter means
+                        that the reference is inactive, and is present only for the purpose of holding value metadata
+                        (usually that it was computed by a rule, but disabled by a statement).
+
+                        3. They are computed using the `production` configuration (regarding statements, and later e.g.
+                        marking rules).
+
+                        Value metadata (currently applies only to shadows):
+
+                        1. provenance/markingRule is set when the value is provided by the automatic marking rule;
+                        2. provenance/policyStatement is set when the value is influenced by the policy statement
+                        (either enforced or suppressed).
                     </xsd:documentation>
                     <xsd:appinfo>
                         <a:objectReferenceTargetType>tns:MarkType</a:objectReferenceTargetType>
-                        <a:experimental>true</a:experimental>
                         <a:displayName>ObjectType.effectiveMarkRef</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
@@ -3036,6 +3055,9 @@
                         <xsd:appinfo>
                             <a:displayName>AssignmentType.policyRule</a:displayName>
                             <a:help>AssignmentType.policyRule.help</a:help>
+                            <a:schemaContext>
+                                <a:type>tns:AssignmentHolderType</a:type>
+                            </a:schemaContext>
                         </xsd:appinfo>
                     </xsd:annotation>
                 </xsd:element>
@@ -4149,10 +4171,8 @@
             <xsd:element name="ref" type="t:ItemPathType">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Path of the item or association that this
-                        definition describes. It must point to property or the
-                        attribute in the resource schema that belongs to an
-                        object class that is being described here.
+                        Path of the item that this definition describes. It must point to an object property or to an attribute
+                        in the resource schema that belongs to an object class that is being described here.
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
@@ -4857,9 +4877,25 @@
                     <xsd:documentation>
                         Attribute is not stored in full repo object (XML) structure.
                         It can be queried. If needed to get it, explicit INCLUDE option has to be used.
+
+                        Ignored for the native repository, as it stores all attributes as "index only".
                     </xsd:documentation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="INDEX_ONLY"/>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:enumeration>
+            <xsd:enumeration value="notIndexed">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Attribute is not indexed. It cannot be queried. It is stored in full repo object (XML) structure only.
+
+                        Ignored for the native repository, as it stores all attributes as "index only".
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <jaxb:typesafeEnumMember name="NOT_INDEXED"/>
+                        <a:since>4.9</a:since>
+                        <a:experimental>true</a:experimental>
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:enumeration>
@@ -4934,6 +4970,27 @@
                 <xsd:annotation>
                     <xsd:documentation>
                         Defines how the password synchronization is handled for the resource.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+    </xsd:complexType>
+
+    <xsd:complexType name="ResourceBehaviorDefinitionType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Definition for different behaviors are handled for the resource.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9.1</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="lastLoginTimestamp" type="tns:ResourceLastLoginTimestampDefinitionType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Defines how the last login timestamp synchronization is handled for the resource.
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
@@ -6036,7 +6093,7 @@
             <xsd:enumeration value="filterAll">
                 <xsd:annotation>
                     <xsd:documentation>
-                        The expression will be interpreted as an NONE filter.
+                        The expression will be interpreted as an ALL filter.
                     </xsd:documentation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="FILTER_ALL"/>
@@ -6701,7 +6758,10 @@
                     <a:version>4.0</a:version>
                     <a:operation>removed</a:operation>
                 </a:schemaMigration>
-               </xsd:appinfo>
+                <a:schemaContext>
+                    <a:typePath>targetType</a:typePath> <!-- TODO check -->
+                </a:schemaContext>
+            </xsd:appinfo>
         </xsd:annotation>
         <xsd:complexContent>
             <xsd:extension base="tns:TransformExpressionEvaluatorType">
@@ -6727,7 +6787,7 @@
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
-                    <xsd:element name="searchStrategy" type="tns:ObjectSearchStrategyType" minOccurs="0">
+                    <xsd:element name="searchStrategy" type="tns:ObjectSearchStrategyType" minOccurs="0" default="inRepository">
                         <xsd:annotation>
                             <xsd:documentation>
                                 How we try to find matching objects. Note that when "onResourceIfNeeded" is used,
@@ -7721,6 +7781,11 @@
                              Expressions are NOT supported here for now.
                          </p>
                      </xsd:documentation>
+                     <xsd:appinfo>
+                         <a:schemaContext>
+                            <a:type>tns:FocusType</a:type>
+                         </a:schemaContext>
+                     </xsd:appinfo>
                  </xsd:annotation>
              </xsd:element>
              <!-- TODO: later: mapping is too flexible. It is will be difficult for the
@@ -8190,6 +8255,9 @@
                 <a:container/>
                 <a:merger>ObjectSelectorType</a:merger>
                 <a:naturalKey>tns:name</a:naturalKey>
+                <a:schemaContext>
+                    <a:typePath>type</a:typePath>
+                </a:schemaContext>
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
@@ -12938,6 +13006,9 @@
             </xsd:documentation>
             <xsd:appinfo>
                 <a:since>3.9</a:since>
+                <a:schemaContext>
+                    <a:typePath>type</a:typePath>
+                </a:schemaContext>
             </xsd:appinfo>
         </xsd:annotation>
          <xsd:complexContent>
@@ -13295,6 +13366,17 @@
                         <a:since>4.0</a:since>
                         <a:experimental>true</a:experimental>
                         <a:displayName>InternalsConfigurationType.caching</a:displayName>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="shadowCaching" type="tns:ShadowCachingConfigurationType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Global settings for the "shadow caching" feature.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:since>4.9</a:since>
+                        <a:displayName>InternalsConfigurationType.shadowCaching</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
@@ -14556,8 +14638,6 @@
                     <xsd:documentation>
                         All shadows touched by given get/search operation (including the associated ones) will be reclassified.
                         Primarily useful for shadow management simulation.
-
-                        TO BE DEFINED BETTER. LIMITED SUPPORT. MAY CHANGE BEFORE 4.9 RELEASE.
                     </xsd:documentation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="FORCED"/>
@@ -16296,6 +16376,9 @@
                             </xsd:documentation>
                             <xsd:appinfo>
                                 <a:displayName>GlobalPolicyRuleType.focusSelector</a:displayName>
+                                <a:schemaContext>
+                                    <a:type>tns:FocusType</a:type>
+                                </a:schemaContext>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -16307,6 +16390,9 @@
                             </xsd:documentation>
                             <xsd:appinfo>
                                 <a:displayName>GlobalPolicyRuleType.targetSelector</a:displayName>
+                                <a:schemaContext>
+                                    <a:type>tns:AssignmentHolderType</a:type>
+                                </a:schemaContext>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -16750,13 +16836,13 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:enumeration>
-            <xsd:enumeration value="00000000-0000-0000-0000-000000000333">
+<!--            <xsd:enumeration value="00000000-0000-0000-0000-000000000333">
                 <xsd:annotation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="CLASSIFICATION_INFORMATION_SECURITY_RESPONSIBILITY"/>
                     </xsd:appinfo>
                 </xsd:annotation>
-            </xsd:enumeration>
+            </xsd:enumeration> -->
             <xsd:enumeration value="00000000-0000-0000-0000-000000000501">
                 <xsd:annotation>
                     <xsd:appinfo>
@@ -17303,7 +17389,7 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:enumeration>
-            <xsd:enumeration value="00000000-0000-0000-0000-000000000831">
+<!--            <xsd:enumeration value="00000000-0000-0000-0000-000000000831">
                 <xsd:annotation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="MARK_UNDERSTAFFED_SECURITY"/>
@@ -17323,7 +17409,7 @@
                         <jaxb:typesafeEnumMember name="MARK_NEGLECTED"/>
                     </xsd:appinfo>
                 </xsd:annotation>
-            </xsd:enumeration>
+            </xsd:enumeration> -->
             <xsd:enumeration value="00000000-0000-0000-0001-000000000001">
                 <xsd:annotation>
                     <xsd:appinfo>
@@ -17331,7 +17417,7 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:enumeration>
-            <xsd:enumeration value="00000000-0000-0000-0001-000000000350">
+<!--            <xsd:enumeration value="00000000-0000-0000-0001-000000000350">
                 <xsd:annotation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="OBJECT_COLLECTION_ALL_INFORMATION_SECURITY_RESPONSIBILITIES"/>
@@ -17344,7 +17430,7 @@
                         <jaxb:typesafeEnumMember name="OBJECT_COLLECTION_SECURITY_UNDERSTAFFING"/>
                     </xsd:appinfo>
                 </xsd:annotation>
-            </xsd:enumeration>
+            </xsd:enumeration> -->
             <xsd:enumeration value="00000000-0000-0000-0001-000000000352">
                 <xsd:annotation>
                     <xsd:appinfo>
@@ -17366,13 +17452,13 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:enumeration>
-            <xsd:enumeration value="00000000-0000-0000-0001-000000001001">
+<!--            <xsd:enumeration value="00000000-0000-0000-0001-000000001001">
                 <xsd:annotation>
                     <xsd:appinfo>
                         <jaxb:typesafeEnumMember name="DASHBOARD_COMPLIANCE"/>
                     </xsd:appinfo>
                 </xsd:annotation>
-            </xsd:enumeration>
+            </xsd:enumeration> -->
         </xsd:restriction>
     </xsd:simpleType>
 
@@ -17786,6 +17872,14 @@
                     <xsd:appinfo>
                         <a:displayName>GetOperationOptionsType.iterationMethod</a:displayName>
                         <a:since>4.4</a:since>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="iterationPageSize" type="xsd:int" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:appinfo>
+                        <a:displayName>GetOperationOptionsType.iterationPageSize</a:displayName>
+                        <a:since>4.9</a:since>
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>

@@ -942,7 +942,13 @@
                         Specification of associations for this object types. Associations do not always have the same physical
                         manifestation as attributes, i.e. they are not always directly visible on the raw resource object.
                         They may be represented implicitly e.g. in the form of group membership.
+
+                        DEPRECATED. Use association types (in schemaHandling) instead.
                     </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:deprecated>true</a:deprecated>
+                        <a:deprecatedSince>4.9</a:deprecatedSince>
+                    </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
             <xsd:element name="volatility" type="tns:ResourceObjectVolatilityType" minOccurs="0">
@@ -995,25 +1001,6 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
-            <xsd:element name="defaultOperationPolicyRef" type="tns:ObjectReferenceType" minOccurs="0">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        Default operation policy for those operations that do not have their behavior specified explicitly
-                        via object marks. I.e., if there is no mark for specific shadow, or if the mark(s) do not specify
-                        the policy explicitly, the policy is determined by the mark referenced here.
-
-                        The mark referenced here should have the archetype of "Shadow policy mark".
-
-                        TODO remove before 4.9 release
-                    </xsd:documentation>
-                    <xsd:appinfo>
-                        <a:since>4.9</a:since>
-                        <a:deprecated>true</a:deprecated>
-                        <a:deprecatedSince>4.9</a:deprecatedSince>
-                        <a:objectReferenceTargetType>tns:MarkType</a:objectReferenceTargetType>
-                    </xsd:appinfo>
-                </xsd:annotation>
-            </xsd:element>
             <xsd:element name="defaultOperationPolicy" type="tns:DefaultOperationPolicyConfigurationType"
                     minOccurs="0" maxOccurs="unbounded">
                 <xsd:annotation>
@@ -1040,6 +1027,7 @@
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
+            <xsd:element name="behavior" minOccurs="0" type="tns:ResourceBehaviorDefinitionType"/>
             <xsd:element name="securityPolicyRef" type="c:ObjectReferenceType" minOccurs="0">
                 <xsd:annotation>
                     <xsd:documentation>
@@ -1240,10 +1228,13 @@
             <xsd:documentation>
                 Definition of an associated object.
 
-                TODO remove before 4.9 release, if not needed
+                Experimental, temporary, unsupported.
+
+                TODO reconsider if really needed
             </xsd:documentation>
             <xsd:appinfo>
                 <a:container/>
+                <a:experimental>true</a:experimental>
                 <a:since>4.9</a:since>
             </xsd:appinfo>
         </xsd:annotation>
@@ -1845,6 +1836,7 @@
             <xsd:appinfo>
                 <a:container/>
                 <a:since>4.9</a:since>
+                <a:naturalKey>name</a:naturalKey>
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
@@ -2410,12 +2402,23 @@
                                 If set to true it indicates that change of this attribute may cause
                                 changes in other attributes. In that case midPoint re-reads the object
                                 after the change of this attributes.
+
+                                DEPRECATED. Use "volatility" instead.
                             </xsd:documentation>
                             <xsd:appinfo>
                                 <a:since>3.4</a:since>
                                 <a:since>3.3.1</a:since>
                                 <a:displayName>ResourceItemDefinitionType.volatilityTrigger</a:displayName>
+                                <a:deprecated>true</a:deprecated>
+                                <a:deprecatedSince>4.9.1</a:deprecatedSince>
                             </xsd:appinfo>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="volatility" type="tns:ShadowItemVolatilityType" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:documentation>
+                                The behavior of this attribute that differs from the "pure data store" expectations.
+                            </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
                     <xsd:element name="displayNameAttribute" type="xsd:boolean" minOccurs="0">
@@ -2505,6 +2508,70 @@
         </xsd:complexContent>
     </xsd:complexType>
 
+    <xsd:complexType name="ShadowItemVolatilityType">
+        <xsd:annotation>
+            <xsd:documentation>
+                The behavior of a shadow item that differs from the "pure data store" expectations.
+                Describes how the item can change without explicit request by midPoint, optionally in relation to other
+                items in this or other resource objects.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9.1</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="incoming" type="tns:ShadowItemDependencyType" minOccurs="0"> <!-- temporarily single-valued -->
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Items on which this item may depend on - i.e., whose values or changes may affect the values
+                        of the item being considered.
+
+                        Note: Currently no specific items can be provided here, only the operation(s) relevant for this dependency.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element name="outgoing" type="tns:ShadowItemDependencyType" minOccurs="0"> <!-- temporarily single-valued -->
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Items that may depend on this item - i.e., whose that may be affected by values or changes of this item.
+                        Currently, only "modify" operation is supported here.
+
+                        Note: Currently no specific items can be provided here, only the operation(s) relevant for this dependency.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
+    <xsd:element name="shadowItemVolatility" type="tns:ShadowItemVolatilityType"/>
+
+    <xsd:complexType name="ShadowItemDependencyType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Describes a dependency between shadow items.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9.1</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <!-- Here will come specific items that are source or target of this dependency -->
+            <!-- Also, an expression that provides the expected outcome of this dependency may come here -->
+            <xsd:element name="operation" type="t:ChangeTypeType" minOccurs="0" maxOccurs="unbounded">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        During which operation(s) does this dependency manifests itself. (DELETE is not relevant for now.)
+                        When unspecified, all operations are expected.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
+    <xsd:element name="shadowItemDependency" type="tns:ShadowItemDependencyType"/>
+
     <xsd:complexType name="ResourceAttributeDefinitionType">
         <xsd:annotation>
             <xsd:documentation>
@@ -2526,6 +2593,19 @@
         </xsd:complexContent>
     </xsd:complexType>
     <xsd:element name="resourceAttributeDefinition" type="tns:ResourceAttributeDefinitionType"/>
+
+    <xsd:complexType name="ResourceLastLoginTimestampDefinitionType">
+        <xsd:annotation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9.1</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="fetchStrategy" type="tns:AttributeFetchStrategyType" minOccurs="0"/>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
 
     <xsd:complexType name="ResourcePasswordDefinitionType">
         <xsd:annotation>
@@ -2912,6 +2992,7 @@
                 </a:schemaMigration>
                 <a:container/>
                 <a:naturalKey>filter</a:naturalKey>
+                <!-- Inherits schema context from ResourceObjectTypeDefinitionType-->
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
@@ -2997,6 +3078,9 @@
             </xsd:documentation>
             <xsd:appinfo>
                 <a:container/>
+                <a:schemaContext>
+                    <a:type>tns:ShadowType</a:type> <!-- probably new resolver/algorithm will be needed-->
+                </a:schemaContext>
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
@@ -3342,6 +3426,9 @@
                     <xsd:documentation>
                         Outbound mapping(s) for the association.
                     </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>ShadowAssociationDefinitionType.outbound</a:displayName>
+                    </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
             <xsd:element name="inbound" type="tns:InboundMappingType" minOccurs="0" maxOccurs="unbounded">
@@ -3349,29 +3436,35 @@
                     <xsd:documentation>
                         Inbound mapping(s) for the association.
                     </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>ShadowAssociationDefinitionType.inbound</a:displayName>
+                    </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
-            <xsd:element name="attribute" type="tns:ResourceAttributeDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        NO INBOUND/OUTBOUND MAPPINGS HERE!
-                    </xsd:documentation>
-                </xsd:annotation>
-            </xsd:element>
-            <xsd:element name="objectRef" type="tns:ResourceAttributeDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        NO INBOUND/OUTBOUND MAPPINGS HERE!
-                    </xsd:documentation>
-                </xsd:annotation>
-            </xsd:element>
-            <xsd:element name="activation" minOccurs="0" type="tns:ResourceActivationDefinitionType">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        NO INBOUND/OUTBOUND MAPPINGS HERE!
-                    </xsd:documentation>
-                </xsd:annotation>
-            </xsd:element>
+            <!-- The following elements are probably useful, but they are not used in 4.9. Especially for activation, we have to
+                    think out how the mappings should be realized. -->
+
+            <!--<xsd:element name="attribute" type="tns:ResourceAttributeDefinitionType" minOccurs="0" maxOccurs="unbounded">-->
+            <!--    <xsd:annotation>-->
+            <!--        <xsd:documentation>-->
+            <!--            NO INBOUND/OUTBOUND MAPPINGS HERE! Only e.g. displayName and such. -->
+            <!--        </xsd:documentation>-->
+            <!--    </xsd:annotation>-->
+            <!--</xsd:element>-->
+            <!--<xsd:element name="objectRef" type="tns:ResourceAttributeDefinitionType" minOccurs="0" maxOccurs="unbounded">-->
+            <!--    <xsd:annotation>-->
+            <!--        <xsd:documentation>-->
+            <!--            NO INBOUND/OUTBOUND MAPPINGS HERE! Only e.g. displayName and such. -->
+            <!--        </xsd:documentation>-->
+            <!--    </xsd:annotation>-->
+            <!--</xsd:element>-->
+            <!--<xsd:element name="activation" minOccurs="0" type="tns:ResourceActivationDefinitionType">-->
+            <!--    <xsd:annotation>-->
+            <!--        <xsd:documentation>-->
+            <!--            NO INBOUND/OUTBOUND MAPPINGS HERE!-->
+            <!--        </xsd:documentation>-->
+            <!--    </xsd:annotation>-->
+            <!--</xsd:element>-->
             <xsd:element name="tolerant" minOccurs="0" type="xsd:boolean" default="true">
                 <xsd:annotation>
                     <xsd:documentation>
@@ -3386,141 +3479,6 @@
                 </xsd:annotation>
             </xsd:element>
         </xsd:sequence>
-    </xsd:complexType>
-
-    <xsd:complexType name="AbstractAssociationMappingType">
-        <xsd:annotation>
-            <xsd:documentation>
-                Inbound or outbound mapping for the association as a whole.
-                See also AbstractMappingType.
-            </xsd:documentation>
-            <xsd:appinfo>
-                <a:container/>
-                <a:since>4.9</a:since>
-            </xsd:appinfo>
-        </xsd:annotation>
-        <xsd:sequence>
-            <xsd:element name="name" type="xsd:string" minOccurs="0">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        Short name of the mapping. Used for provenance metadata management and debugging purposes.
-                    </xsd:documentation>
-                </xsd:annotation>
-            </xsd:element>
-            <xsd:element name="expression" type="tns:ExpressionType" minOccurs="0">
-                <xsd:annotation>
-                    <xsd:documentation>
-                        Alternative representation of the outbound mapping: via explicit expression.
-                        Mutually exclusive with partial attribute/objectRef/validation mappings.
-                    </xsd:documentation>
-                    <xsd:appinfo>
-                        <a:displayName>MappingType.expression</a:displayName>
-                    </xsd:appinfo>
-                </xsd:annotation>
-            </xsd:element>
-        </xsd:sequence>
-        <xsd:attribute name="id" type="xsd:long"/>
-    </xsd:complexType>
-
-    <xsd:complexType name="AssociationOutboundMappingType">
-        <xsd:annotation>
-            <xsd:documentation>
-                Outbound mapping for the association as a whole.
-            </xsd:documentation>
-            <xsd:appinfo>
-                <a:container/>
-                <a:since>4.9</a:since>
-            </xsd:appinfo>
-        </xsd:annotation>
-        <xsd:complexContent>
-            <xsd:extension base="tns:AbstractAssociationMappingType">
-                <xsd:sequence>
-                    <xsd:element name="attribute" type="tns:AttributeOutboundMappingsDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of given association attribute.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="objectRef" type="tns:AttributeOutboundMappingsDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of given object-side of this association.
-                                The object can be specified exactly (via "ref" property), or kept implicit, if there's only one object.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="activation" minOccurs="0" type="tns:ResourceActivationDefinitionType">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of the activation of this association.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                </xsd:sequence>
-            </xsd:extension>
-        </xsd:complexContent>
-    </xsd:complexType>
-
-    <xsd:complexType name="AssociationInboundMappingType">
-        <xsd:annotation>
-            <xsd:documentation>
-                Inbound mapping for the association as a whole.
-            </xsd:documentation>
-            <xsd:appinfo>
-                <a:container/>
-                <a:since>4.9</a:since>
-            </xsd:appinfo>
-        </xsd:annotation>
-        <xsd:complexContent>
-            <xsd:extension base="tns:AbstractAssociationMappingType">
-                <xsd:sequence>
-                    <xsd:element name="attribute" type="tns:AttributeInboundMappingsDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of given association attribute.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="objectRef" type="tns:AttributeInboundMappingsDefinitionType" minOccurs="0" maxOccurs="unbounded">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of given object-side of this association.
-                                The object can be specified exactly (via "ref" property), or kept implicit, if there's only one object.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="activation" minOccurs="0" type="tns:ResourceActivationDefinitionType">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                Outbound processing of the activation of this association.
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="correlation" type="tns:CorrelationDefinitionType" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                How objects of this type are correlated to focus objects?
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="synchronization" type="tns:ItemSynchronizationReactionsType" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                TODO
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                    <xsd:element name="target" type="tns:AssociationInboundMappingTargetDefinitionType" minOccurs="0">
-                        <xsd:annotation>
-                            <xsd:documentation>
-                                TODO
-                            </xsd:documentation>
-                        </xsd:annotation>
-                    </xsd:element>
-                </xsd:sequence>
-            </xsd:extension>
-        </xsd:complexContent>
     </xsd:complexType>
 
     <xsd:complexType name="AbstractAttributeMappingsDefinitionType">
@@ -3652,7 +3610,7 @@
     <xsd:simpleType name="ResourceObjectAssociationDirectionType">
         <xsd:annotation>
             <xsd:documentation>
-                Direction of a resource object association.
+                Direction of a resource object reference or association.
             </xsd:documentation>
         </xsd:annotation>
         <xsd:restriction base="xsd:string">
@@ -4129,6 +4087,11 @@
                             that denotes a necessary condition for the filter to be applied.
                         </p>
                     </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:schemaContext>
+                            <a:type>tns:FocusType</a:type>
+                        </a:schemaContext>
+                    </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
             <xsd:element name="confirmation" type="c:ExpressionType" minOccurs="0">
@@ -5442,10 +5405,10 @@
                         </xsd:annotation>
                     </xsd:element>
                     <xsd:element name="credentials" type="tns:CredentialsType" minOccurs="0">
+                        <!-- See also https://docs.evolveum.com/midpoint/devel/design/password-caching-4.9.1/ -->
                         <xsd:annotation>
                             <xsd:documentation>
-                                The set of account credentials (such as
-                                passwords).
+                                The set of account credentials (such as passwords).
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
@@ -5468,6 +5431,14 @@
                             <xsd:appinfo>
                                 <a:since>4.9</a:since>
                                 <a:operational>true</a:operational>
+                            </xsd:appinfo>
+                        </xsd:annotation>
+                    </xsd:element>
+                    <xsd:element name="behavior" type="tns:ShadowBehaviorType" minOccurs="0">
+                        <xsd:annotation>
+                            <xsd:appinfo>
+                                <a:displayName>ShadowType.behavior</a:displayName>
+                                <a:since>4.9</a:since>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -6305,6 +6276,7 @@
             <xsd:appinfo>
                 <a:container/>
                 <a:since>4.6</a:since>
+                <!-- Inherits schema context from ResourceObjectTypeDefinitionType-->
             </xsd:appinfo>
         </xsd:annotation>
         <xsd:sequence>
@@ -6781,8 +6753,12 @@
                     <xsd:element name="synchronize" type="xsd:boolean" minOccurs="0" default="true">
                         <xsd:annotation>
                             <xsd:documentation>
+                                Designed to be like this:
+
                                 If set to false, the clockwork will not run. So e.g. linking and unlinking will be done
                                 in "fast" way.
+
+                                But currently not implemented. See MID-10338.
                             </xsd:documentation>
                         </xsd:annotation>
                     </xsd:element>
@@ -7216,6 +7192,29 @@
         </xsd:sequence>
     </xsd:complexType>
 
+    <xsd:complexType name="ShadowCachingConfigurationType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Global settings for the "shadow caching" feature.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="defaultPolicy" type="tns:ShadowCachingPolicyType" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Default policy for the shadow caching.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
+    <xsd:element name="shadowCachingConfiguration" type="tns:ShadowCachingConfigurationType" />
+
     <xsd:complexType name="ShadowCachingPolicyType">
         <xsd:annotation>
             <xsd:documentation>
@@ -7296,11 +7295,18 @@
                     </xsd:documentation>
                 </xsd:annotation>
             </xsd:element>
-            <xsd:element name="credentials" type="tns:ShadowItemsCachingScopeType" minOccurs="0" default="all">
+            <xsd:element name="credentials" type="tns:ShadowCredentialsCachingScopeType" minOccurs="0">
                 <xsd:annotation>
                     <xsd:documentation>
-                        Scope of the caching for credentials.
+                        Scope of the caching for credentials, i.e., the password for now.
+                        Note that we currently store only the hashed value (or "incomplete" flag) in the shadow.
+
+                        See https://docs.evolveum.com/midpoint/devel/design/password-caching-4.9.1/.
                     </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:since>4.9.1</a:since>
+                        <a:since>4.10</a:since>
+                    </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
         </xsd:sequence>
@@ -7357,6 +7363,29 @@
             </xsd:enumeration>
         </xsd:restriction>
     </xsd:simpleType>
+
+    <xsd:complexType name="ShadowCredentialsCachingScopeType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Scope of the shadow credentials caching.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9.1</a:since>
+                <a:since>4.10</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="password" type="tns:ShadowItemsCachingScopeType" minOccurs="0" default="all">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Scope of the caching for the shadow password.
+                    </xsd:documentation>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
 
     <xsd:simpleType name="ShadowItemsCachingScopeType">
         <xsd:annotation>
@@ -7424,7 +7453,13 @@
             </xsd:element>
         </xsd:sequence>
     </xsd:complexType>
-    <xsd:element name="associationConstruction" type="tns:AssociationConstructionExpressionEvaluatorType" substitutionGroup="tns:expressionEvaluator"/>
+    <xsd:element name="associationConstruction" type="tns:AssociationConstructionExpressionEvaluatorType" substitutionGroup="tns:expressionEvaluator">
+        <xsd:annotation>
+            <xsd:appinfo>
+                <a:displayName>ExpressionType.associationConstruction</a:displayName>
+            </xsd:appinfo>
+        </xsd:annotation>
+    </xsd:element>
 
     <xsd:complexType name="AssociationSynchronizationExpressionEvaluatorType">
         <xsd:annotation>
@@ -7484,6 +7519,42 @@
             </xsd:element>
         </xsd:sequence>
     </xsd:complexType>
-    <xsd:element name="associationSynchronization" type="tns:AssociationSynchronizationExpressionEvaluatorType" substitutionGroup="tns:expressionEvaluator"/>
+    <xsd:element name="associationSynchronization" type="tns:AssociationSynchronizationExpressionEvaluatorType" substitutionGroup="tns:expressionEvaluator">
+        <xsd:annotation>
+            <xsd:appinfo>
+                <a:displayName>ExpressionType.associationSynchronization</a:displayName>
+            </xsd:appinfo>
+        </xsd:annotation>
+    </xsd:element>
+
+    <xsd:complexType name="ShadowBehaviorType">
+        <xsd:annotation>
+            <xsd:documentation>
+                Shadow behavioral data.
+                In a more specific meaning: behavioral data of an agent (user or system), usually represented in midPoint by shadow.
+                This data structure records informational data about the agent's behavior, such as authentications, interaction with external systems and so on.
+                Such data are inherently _observed_, e.g. they are not configured by the user.
+            </xsd:documentation>
+            <xsd:appinfo>
+                <a:container/>
+                <a:since>4.9</a:since>
+            </xsd:appinfo>
+        </xsd:annotation>
+        <xsd:sequence>
+            <xsd:element name="lastLoginTimestamp" type="xsd:dateTime" minOccurs="0">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        The date and time of last successful login attempt.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>ShadowBehaviorType.lastLoginTimestamp</a:displayName>
+                        <a:displayHint>regular</a:displayHint>
+                        <a:operational>true</a:operational>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+        </xsd:sequence>
+        <xsd:attribute name="id" type="xsd:long"/>
+    </xsd:complexType>
 
 </xsd:schema>

@@ -9,10 +9,6 @@ package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.tmp.modes;
 
 import org.jetbrains.annotations.NotNull;
 
-import com.evolveum.midpoint.common.mining.objects.analysis.RoleAnalysisAttributeDef;
-import com.evolveum.midpoint.common.mining.utils.RoleAnalysisAttributeDefUtils;
-import com.evolveum.midpoint.gui.api.model.LoadableModel;
-import com.evolveum.midpoint.gui.api.prism.wrapper.PrismObjectWrapper;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.tmp.context.AbstractRoleAnalysisConfiguration;
 import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
 import com.evolveum.midpoint.schema.result.OperationResult;
@@ -24,9 +20,10 @@ public class DepartmentModeConfiguration extends AbstractRoleAnalysisConfigurati
     RoleAnalysisService service;
     Task task;
     OperationResult result;
+
     public DepartmentModeConfiguration(
             RoleAnalysisService service,
-            LoadableModel<PrismObjectWrapper<RoleAnalysisSessionType>> objectWrapper,
+            RoleAnalysisSessionType objectWrapper,
             Task task,
             OperationResult result) {
         super(objectWrapper);
@@ -37,37 +34,29 @@ public class DepartmentModeConfiguration extends AbstractRoleAnalysisConfigurati
 
     @Override
     public void updateConfiguration() {
-        RangeType propertyRange = createPropertyRange();
         ClusteringAttributeSettingType clusteringSetting = createClusteringSetting();
 
-        updatePrimaryOptions(null,
+        updatePrimaryOptions(null, null, null,
                 false,
-                propertyRange,
                 getDefaultAnalysisAttributes(),
                 clusteringSetting,
                 0.0,
-                2,
-                2,
-                false);
+                2, 2, false);
 
         updateDetectionOptions(2,
                 2,
                 null,
                 createDetectionRange(),
-                RoleAnalysisDetectionProcessType.FULL);
+                RoleAnalysisDetectionProcessType.FULL,
+                null,
+                null);
     }
 
-    private RangeType createPropertyRange() {
-        double minPropertyCount = 2.0;
-        double maxPropertyCount = getMaxPropertyCount();
-        return new RangeType().min(minPropertyCount).max(maxPropertyCount);
-    }
-
+    //TODO let the user choose the archetype or root for departmnet structre
     private @NotNull ClusteringAttributeSettingType createClusteringSetting() {
-        RoleAnalysisAttributeDef orgAssignment = RoleAnalysisAttributeDefUtils.getOrgAssignment();
         ClusteringAttributeSettingType clusteringSetting = new ClusteringAttributeSettingType();
         ClusteringAttributeRuleType rule = new ClusteringAttributeRuleType()
-                .attributeIdentifier(orgAssignment.getDisplayValue())
+                .path(ObjectType.F_PARENT_ORG_REF.toBean())
                 .isMultiValue(true)
                 .weight(1.0)
                 .similarity(100.0);
@@ -80,22 +69,6 @@ public class DepartmentModeConfiguration extends AbstractRoleAnalysisConfigurati
     //  Also these structured classes should be used for migration process specification.
     private RangeType createDetectionRange() {
         return new RangeType().min(90.0).max(100.0);
-    }
-
-    public @NotNull Integer getMaxPropertyCount() {
-        Class<? extends ObjectType> propertiesClass = UserType.class;
-        if (getProcessMode().equals(RoleAnalysisProcessModeType.USER)) {
-            propertiesClass = RoleType.class;
-        }
-
-        Integer maxPropertiesObjects;
-
-        maxPropertiesObjects = service.countObjects(propertiesClass, null, null, task, result);
-
-        if (maxPropertiesObjects == null) {
-            maxPropertiesObjects = 1000000;
-        }
-        return maxPropertiesObjects;
     }
 
 }

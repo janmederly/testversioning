@@ -17,6 +17,8 @@ import static com.evolveum.midpoint.util.MiscUtil.stateNonNull;
 import java.util.*;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.model.impl.lens.projector.focus.inbounds.prep.InboundMappingContextSpecification;
+
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,7 +42,7 @@ import com.evolveum.midpoint.repo.common.expression.ExpressionEvaluationContext;
 import com.evolveum.midpoint.repo.common.expression.evaluator.AbstractExpressionEvaluator;
 import com.evolveum.midpoint.schema.CorrelatorDiscriminator;
 import com.evolveum.midpoint.schema.constants.ObjectTypes;
-import com.evolveum.midpoint.schema.processor.ResourceObjectInboundDefinition;
+import com.evolveum.midpoint.schema.processor.ResourceObjectInboundProcessingDefinition;
 import com.evolveum.midpoint.schema.processor.ShadowAssociationDefinition;
 import com.evolveum.midpoint.schema.processor.ShadowAssociationValue;
 import com.evolveum.midpoint.schema.processor.SynchronizationReactionDefinition.ItemSynchronizationReactionDefinition;
@@ -119,12 +121,9 @@ class AssociationSynchronizationExpressionEvaluator
                 (LensProjectionContext) ModelExpressionThreadLocalHolder.getProjectionContextRequired();
         @NotNull private final ResourceType resource = projectionContext.getResourceRequired();
 
-        @NotNull private final ResourceObjectInboundDefinition inboundDefinition;
+        @NotNull private final ResourceObjectInboundProcessingDefinition inboundProcessingDefinition;
 
         @NotNull private final Collection<AssignmentType> candidateAssignments;
-
-//        /** IDs of (existing) assignments that were seen by this processing. Other assignments in the range will be removed. */
-//        @NotNull private final Set<Long> assignmentsIdsSeen = new HashSet<>();
 
         Evaluation(
                 @NotNull Collection<? extends PrismValue> inputValues,
@@ -134,8 +133,8 @@ class AssociationSynchronizationExpressionEvaluator
             this.inputValues = inputValues;
             this.associationDefinition = associationDefinition;
             this.context = context;
-            this.inboundDefinition =
-                    ResourceObjectInboundDefinition.forAssociationSynchronization(
+            this.inboundProcessingDefinition =
+                    ResourceObjectInboundProcessingDefinition.forAssociationSynchronization(
                             associationDefinition,
                             expressionEvaluatorBean,
                             context.getTargetDefinitionBean());
@@ -321,7 +320,7 @@ class AssociationSynchronizationExpressionEvaluator
                     return SimplifiedCorrelationResult.noOwner();
                 }
 
-                var correlationDefinitionBean = mergeCorrelationDefinition(inboundDefinition, null, resource);
+                var correlationDefinitionBean = mergeCorrelationDefinition(inboundProcessingDefinition, null, resource);
                 var systemConfiguration = beans.systemObjectCache.getSystemConfigurationBean(result);
                 var correlationResult = beans.correlationServiceImpl.correlateLimited(
                         CorrelatorContextCreator.createRootContext(
@@ -347,12 +346,12 @@ class AssociationSynchronizationExpressionEvaluator
                 var targetAssignment = instantiateTargetAssignment();
                 PreMappingsEvaluator.computePreFocusForAssociationValue(
                         associationValue,
-                        associationValue.hasAssociationObject() ?
+                        associationValue.isComplex() ?
                                 associationValue.getAssociationDataObject().getObjectDefinition() :
                                 projectionContext.getCompositeObjectDefinitionRequired(),
-                        inboundDefinition,
+                        inboundProcessingDefinition,
                         projectionContext.getResourceRequired(),
-                        projectionContext.getKey().getTypeIdentification(),
+                        createMappingContextSpecification(),
                         targetAssignment,
                         context.getTask(),
                         result);
@@ -363,7 +362,7 @@ class AssociationSynchronizationExpressionEvaluator
             private AssignmentType instantiateTargetAssignment() {
                 // FIXME temporary
                 var assignment = new AssignmentType();
-                var subtype = inboundDefinition.getFocusSpecification().getAssignmentSubtype();
+                var subtype = inboundProcessingDefinition.getFocusSpecification().getAssignmentSubtype();
                 if (subtype != null) {
                     assignment.subtype(subtype);
                 }
@@ -374,7 +373,8 @@ class AssociationSynchronizationExpressionEvaluator
             private void registerAssignmentsSeen(SimplifiedCorrelationResult correlationResult) {
                 var owner = correlationResult.getOwner();
                 if (owner != null) {
-                    // No metadata here - as for now; these assignments were not - in fact - created by this mapping
+                    // No metadata here, as for now; these assignments might or might not be, in fact, created by this mapping
+                    // see also MID-10084.
                     //noinspection unchecked
                     evaluatorResult.addToZeroSet(owner.asPrismContainerValue().clone());
                 }
@@ -398,7 +398,7 @@ class AssociationSynchronizationExpressionEvaluator
                     return null;
                 }
 
-                for (var abstractReaction : inboundDefinition.getSynchronizationReactions()) {
+                for (var abstractReaction : inboundProcessingDefinition.getSynchronizationReactions()) {
                     var reaction = (ItemSynchronizationReactionDefinition) abstractReaction;
                     if (reaction.matchesSituation(situation)) {
                         // TODO evaluate other aspects, like condition etc
@@ -511,15 +511,22 @@ class AssociationSynchronizationExpressionEvaluator
                 return new DefaultSingleShadowInboundsProcessingContextImpl<>(
                         associationValue,
                         resource,
-                        projectionContext.getKey().getTypeIdentification(),
+                        createMappingContextSpecification(),
                         targetAssignment,
                         ModelBeans.get().systemObjectCache.getSystemConfigurationBean(result),
                         context.getTask(),
-                        associationValue.hasAssociationObject() ?
+                        associationValue.isComplex() ?
                                 associationValue.getAssociationDataObject().getObjectDefinition() :
                                 projectionContext.getCompositeObjectDefinitionRequired(),
-                        inboundDefinition,
+                        inboundProcessingDefinition,
                         false);
+            }
+
+            private @NotNull InboundMappingContextSpecification createMappingContextSpecification() {
+                return new InboundMappingContextSpecification(
+                        projectionContext.getKey().getTypeIdentification(),
+                        associationDefinition.getAssociationTypeName(),
+                        projectionContext.getTag());
             }
 
             private void executeDelete() {

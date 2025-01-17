@@ -6,20 +6,25 @@
  */
 package com.evolveum.midpoint.schema.internals;
 
-import org.apache.commons.configuration2.Configuration;
-
-import com.google.common.annotations.VisibleForTesting;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.Arrays;
 import java.util.stream.Collectors;
+
+import com.google.common.annotations.VisibleForTesting;
+import org.apache.commons.configuration2.Configuration;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
+
+import com.evolveum.midpoint.util.logging.Trace;
+import com.evolveum.midpoint.util.logging.TraceManager;
 
 /**
  * @author semancik
  *
  */
 public class InternalsConfig {
+
+    private static final Trace LOGGER = TraceManager.getTrace(InternalsConfig.class);
 
     private static final String CONSISTENCY_CHECKS = "consistencyChecks";
     private static final String SANITY_CHECKS = "sanityChecks";
@@ -75,18 +80,18 @@ public class InternalsConfig {
     private static boolean detailedAuthorizationLog = false;
 
     /**
-     * What caching should be turned on for resources that have no specific caching configuration?
-     * This is influenced by `midpoint.internals.shadowCachingDefault` system property.
+     * What should be the default shadow caching settings (to be combined with resource-specific settings)?
+     *
+     * Normally, these are taken from the system configuration. But we can override this, mainly for tests.
+     * We use `midpoint.internals.shadowCachingDefault` system property for that.
      */
-    private static ShadowCachingDefault shadowCachingDefault;
+    @NotNull private static ShadowCachingDefault shadowCachingDefault = ShadowCachingDefault.FROM_SYSTEM_CONFIGURATION;
 
     /**
      * This is the default setting for {@link #shadowCachingDefault} (if the respective system property is not present).
-     * Currently, we need different values for tests and standard GUI mode.
-     *
-     * TODO resolve this somehow before 4.9 release
+     * Used for the tests to enforce caching even if nothing is set via system properties.
      */
-    public static ShadowCachingDefault shadowCachingDefaultDefault = ShadowCachingDefault.NONE;
+    @Nullable public static String shadowCachingDefaultDefault;
 
     public static boolean isPrismMonitoring() {
         return prismMonitoring;
@@ -173,16 +178,28 @@ public class InternalsConfig {
         testingPaths = null;
     }
 
+    @TestOnly
     public static boolean isShadowCachingOnByDefault() {
-        return shadowCachingDefault != ShadowCachingDefault.NONE;
+        return shadowCachingDefault == ShadowCachingDefault.FULL
+                || shadowCachingDefault == ShadowCachingDefault.FULL_BUT_USING_FRESH;
     }
 
     /**
-     * If true, and if the shadow caching is enabled because of {@link #isShadowCachingOnByDefault()}, then the cache is turned
-     * on with long TTL, and for all attributes. To be used for tests.
+     * If true, then the cache is turned on by default with long TTL, and for all attributes. To be used for tests.
      */
+    @TestOnly
     public static boolean isShadowCachingFullByDefault() {
         return shadowCachingDefault == ShadowCachingDefault.FULL;
+    }
+
+    public static @NotNull ShadowCachingDefault getShadowCachingDefault() {
+        return shadowCachingDefault;
+    }
+
+    /** Use with care! The standard way is to provide the default for tests via the system property. */
+    @TestOnly
+    public static void setShadowCachingDefault(@NotNull ShadowCachingDefault shadowCachingDefault) {
+        InternalsConfig.shadowCachingDefault = shadowCachingDefault;
     }
 
     public static void set(Configuration internalsConfig) {
@@ -208,7 +225,9 @@ public class InternalsConfig {
 
         shadowCachingDefault =
                 ShadowCachingDefault.fromString(
-                        internalsConfig.getString(SHADOW_CACHING_DEFAULT, shadowCachingDefaultDefault.stringValue));
+                        internalsConfig.getString(SHADOW_CACHING_DEFAULT, shadowCachingDefaultDefault));
+
+        LOGGER.info("Default setting for shadow caching: {}", shadowCachingDefault);
     }
 
     public static void reset() {
@@ -261,24 +280,49 @@ public class InternalsConfig {
 
     public enum ShadowCachingDefault {
 
+        /** Default shadow caching settings should be taken from the system configuration. */
+        FROM_SYSTEM_CONFIGURATION("fromSystemConfiguration", false),
+
         /** The default is no caching, just like it was in 4.8 and earlier. */
-        NONE("none"),
+        @TestOnly
+        NONE("none", false),
 
-        /** The default is short-lived caching ... TODO specify. This is the default. */
-        STANDARD("standard"),
+        /** The default is caching of all data, with long TTL. */
+        @TestOnly
+        FULL("full", false),
 
-        /** The default is caching of all data, with long TTL. To be used primarily in tests. */
-        FULL("full");
+        /**
+         * Emulates the default out-of-the-box settings in 4.9, with the following differences:
+         *
+         * . TTL is long, to avoid breaking tests that manipulate the clock
+         * (note that the standard TTL is 1 day for practical reasons);
+         * . caches all attributes, not only the defined ones (but this may change in the future).
+         *
+         * Effectively, it is quite similar to {@link #FULL}, with a crucial difference in that it uses fresh data,
+         * not cached ones.
+         *
+         * This is the default value for tests.
+         */
+        @TestOnly
+        FULL_BUT_USING_FRESH("fullButUsingFresh", true);
 
         private final String stringValue;
 
-        ShadowCachingDefault(String stringValue) {
+        /**
+         * Is this value the standard one for the tests? Exactly one of the values should have it set.
+         * Checked by tests that should not be run under non-standard caching configs.
+         */
+        @TestOnly
+        private final boolean standardForTests;
+
+        ShadowCachingDefault(String stringValue, boolean standardForTests) {
             this.stringValue = stringValue;
+            this.standardForTests = standardForTests;
         }
 
         public static @NotNull ShadowCachingDefault fromString(@Nullable String valueToFind) {
             if (valueToFind == null) {
-                return STANDARD;
+                return FROM_SYSTEM_CONFIGURATION;
             }
             for (ShadowCachingDefault value : values()) {
                 if (valueToFind.equals(value.stringValue)) {
@@ -296,6 +340,11 @@ public class InternalsConfig {
         @Override
         public String toString() {
             return stringValue;
+        }
+
+        @TestOnly
+        public boolean isStandardForTests() {
+            return standardForTests;
         }
     }
 }

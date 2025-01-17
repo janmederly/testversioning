@@ -6,6 +6,9 @@
  */
 package com.evolveum.midpoint.test.ldap;
 
+import static com.evolveum.midpoint.util.MiscUtil.emptyIfNull;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.AssertJUnit.assertEquals;
 
 import java.io.*;
@@ -475,6 +478,14 @@ public class OpenDJController extends AbstractResourceController {
         return searchSingle("(uid=" + string + ")");
     }
 
+    public @NotNull Entry fetchEntryRequired(String dn) throws DirectoryException {
+        Entry entry = fetchEntry(dn);
+        if (entry == null) {
+            throw new AssertionError("No entry for DN " + dn);
+        }
+        return entry;
+    }
+
     public Entry fetchEntry(String dn) throws DirectoryException {
         Validate.notNull(dn);
         InternalSearchOperation op = getInternalConnection().processSearch(
@@ -490,8 +501,7 @@ public class OpenDJController extends AbstractResourceController {
     }
 
     public Entry fetchAndAssertEntry(String dn, String objectClass) throws DirectoryException {
-        Entry entry = fetchEntry(dn);
-        AssertJUnit.assertNotNull("No entry for DN " + dn, entry);
+        Entry entry = fetchEntryRequired(dn);
         assertDn(entry, dn);
         assertObjectClass(entry, objectClass);
         return entry;
@@ -563,7 +573,7 @@ public class OpenDJController extends AbstractResourceController {
 
     public static Collection<String> getAttributeValues(Entry response, String name) {
         List<Attribute> attrs = response.getAttribute(name.toLowerCase());
-        if (attrs == null || attrs.size() == 0) {
+        if (attrs == null || attrs.isEmpty()) {
             return null;
         }
         assertEquals("Too many attributes for name " + name + ": ",
@@ -649,6 +659,16 @@ public class OpenDJController extends AbstractResourceController {
                 members, accountDns);
     }
 
+    public void assertMemberUids(Entry groupEntry, String... uids) {
+        Collection<String> members = getAttributeValues(groupEntry, "memberUid");
+        if (uids.length == 0 && members == null) {
+            return;
+        }
+        assertThat(members)
+                .as("Members in group " + getDn(groupEntry))
+                .containsExactlyInAnyOrder(uids);
+    }
+
     public void assertUniqueMember(String groupDn, String accountDn) throws DirectoryException {
         Entry groupEntry = fetchEntry(groupDn);
         assertUniqueMember(groupEntry, accountDn);
@@ -668,6 +688,11 @@ public class OpenDJController extends AbstractResourceController {
     public void assertUniqueMembers(String groupDn, String... accountDns) throws DirectoryException {
         Entry groupEntry = fetchEntry(groupDn);
         assertUniqueMembers(groupEntry, accountDns);
+    }
+
+    public void assertMemberUids(String groupDn, String... uids) throws DirectoryException {
+        Entry groupEntry = fetchEntry(groupDn);
+        assertMemberUids(groupEntry, uids);
     }
 
     public static void assertAttribute(Entry response, String name, String... values) {
@@ -946,11 +971,13 @@ public class OpenDJController extends AbstractResourceController {
     }
 
     public Collection<String> getGroupUniqueMembers(String groupDn) throws DirectoryException {
-        Entry groupEntry = fetchEntry(groupDn);
-        if (groupEntry == null) {
-            throw new IllegalArgumentException(groupDn + " was not found");
-        }
+        Entry groupEntry = fetchEntryRequired(groupDn);
         return getAttributeValues(groupEntry, "uniqueMember");
+    }
+
+    public @NotNull Collection<String> getGroupMembers(String groupDn) throws DirectoryException {
+        Entry groupEntry = fetchEntryRequired(groupDn);
+        return emptyIfNull(getAttributeValues(groupEntry, "member"));
     }
 
     /*

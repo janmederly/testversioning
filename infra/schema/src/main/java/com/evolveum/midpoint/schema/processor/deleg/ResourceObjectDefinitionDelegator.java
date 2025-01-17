@@ -89,6 +89,11 @@ public interface ResourceObjectDefinitionDelegator extends ResourceObjectDefinit
     }
 
     @Override
+    @Nullable
+    default ResourceLastLoginTimestampDefinitionType getLastLoginTimestampDefinition() {
+        return delegate().getLastLoginTimestampDefinition();
+    }
+    @Override
     default @NotNull ResourceObjectClassDefinition getObjectClassDefinition() {
         return delegate().getObjectClassDefinition();
     }
@@ -206,6 +211,12 @@ public interface ResourceObjectDefinitionDelegator extends ResourceObjectDefinit
     }
 
     @Override
+    @NotNull
+    default List<MappingType> getAuxiliaryObjectClassInboundMappings() {
+        return delegate().getAuxiliaryObjectClassInboundMappings();
+    }
+
+    @Override
     default @NotNull ShadowMarkingRules getShadowMarkingRules() {
         return delegate().getShadowMarkingRules();
     }
@@ -308,13 +319,9 @@ public interface ResourceObjectDefinitionDelegator extends ResourceObjectDefinit
     }
 
     @Override
-    default ItemInboundDefinition getSimpleAttributeInboundDefinition(ItemName itemName) throws SchemaException {
-        return delegate().getSimpleAttributeInboundDefinition(itemName);
-    }
-
-    @Override
-    default ItemInboundDefinition getReferenceAttributeInboundDefinition(ItemName itemName) throws SchemaException {
-        return delegate().getReferenceAttributeInboundDefinition(itemName);
+    @NotNull
+    default Collection<CompleteItemInboundDefinition> getItemInboundDefinitions() {
+        return delegate().getItemInboundDefinitions();
     }
 
     @Override
@@ -332,5 +339,4 @@ public interface ResourceObjectDefinitionDelegator extends ResourceObjectDefinit
     default CorrelationDefinitionType getCorrelation() {
         return delegate().getCorrelation();
     }
-
 }

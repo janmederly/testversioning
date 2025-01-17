@@ -13,8 +13,10 @@ import java.util.function.BiFunction;
 
 import com.evolveum.axiom.concepts.CheckedFunction;
 import com.evolveum.midpoint.prism.*;
+import com.evolveum.midpoint.prism.delta.ItemDelta;
 import com.evolveum.midpoint.prism.impl.PrismContainerImpl;
 import com.evolveum.midpoint.prism.path.*;
+import com.evolveum.midpoint.prism.polystring.PolyString;
 import com.evolveum.midpoint.prism.schema.SchemaRegistryState;
 import com.evolveum.midpoint.repo.sqlbase.SqlBaseOperationTracker;
 import com.evolveum.midpoint.repo.sqale.mapping.SqaleMappingMixin;
@@ -29,7 +31,6 @@ import com.evolveum.midpoint.repo.sqlbase.mapping.ResultListRowTransformer;
 import com.evolveum.midpoint.repo.sqlbase.querydsl.FlexibleRelationalPathBase;
 import com.evolveum.midpoint.schema.RetrieveOption;
 import com.evolveum.midpoint.schema.util.ValueMetadataTypeUtil;
-import com.evolveum.midpoint.util.Holder;
 import com.evolveum.midpoint.util.exception.SystemException;
 
 import com.evolveum.midpoint.util.exception.TunnelException;
@@ -39,6 +40,8 @@ import com.google.common.collect.*;
 import com.querydsl.core.Tuple;
 import com.querydsl.core.types.Path;
 import com.querydsl.core.types.Predicate;
+import org.apache.commons.collections4.CollectionUtils;
+import org.jetbrains.annotations.MustBeInvokedByOverriders;
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.repo.api.RepositoryObjectDiagnosticData;
@@ -58,6 +61,7 @@ import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
 
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 import javax.xml.namespace.QName;
@@ -75,6 +79,7 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
     public static final String DEFAULT_ALIAS_NAME = "o";
 
     private static QObjectMapping<?, ?, ?> instance;
+    @Nullable
     private PathSet fullObjectSkips;
 
     private final SchemaRegistryState.DerivationKey<ItemDefinition<?>> derivationKey;
@@ -88,13 +93,12 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
         return instance;
     }
 
-    private Map<ItemName, FullObjectItemMapping> separatellySerializedItems = new HashMap<>();
+    private final Map<ItemName, FullObjectItemMapping<?,?>> separatellySerializedItems = new HashMap<>();
 
     // Explanation in class Javadoc for SqaleTableMapping
     public static QObjectMapping<?, ?, ?> getObjectMapping() {
         return Objects.requireNonNull(instance);
     }
-
 
     private boolean storeSplitted = true;
 
@@ -191,12 +195,24 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
     }
 
     @Override
+    @MustBeInvokedByOverriders
     public @NotNull Path<?>[] selectExpressions(
             Q entity, Collection<SelectorOptions<GetOperationOptions>> options) {
+        var paths = new ArrayList<Path<?>>();
+        paths.add(entity.oid);
+        paths.add(entity.objectType);
+        paths.add(entity.version);
+        if (isExcludeFullObject(options)) {
+            // We have options to exclude everything, so at least we should fetch name, since lot of code assumes name is present
+            paths.add( entity.nameOrig);
+            paths.add(entity.nameNorm);
+        } else {
+           paths.add(entity.fullObject);
+        }
         // TODO: there is currently no support for index-only extensions (from entity.ext).
         //  See how QShadowMapping.loadIndexOnly() is used, and probably compose the result of this call
         //  using super... call in the subclasses. (joining arrays? providing mutable list?)
-        return new Path[] { entity.oid, entity.objectType, entity.fullObject };
+        return paths.toArray(new Path<?>[0]);
     }
 
     @Override
@@ -219,17 +235,69 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
             @NotNull JdbcSession jdbcSession,
             Collection<SelectorOptions<GetOperationOptions>> options)
             throws SchemaException {
-        byte[] fullObject = Objects.requireNonNull(row.get(entityPath.fullObject));
+
         UUID oid = Objects.requireNonNull(row.get(entityPath.oid));
-        S ret = parseSchemaObject(fullObject, oid.toString());
+        var repoType = Objects.requireNonNull(row.get(entityPath.objectType));
+        S ret;
+        byte[] fullObject = row.get(entityPath.fullObject);
+        if (fullObject == null) {
+            // Full Object was excluded.
+            // We have exclude (dont retrieve) options for whole object, so we just return oid
+            //noinspection unchecked
+            ret = (S) repoType.createObject()
+                .oid(oid.toString())
+                .name(new PolyStringType(new PolyString(row.get(entityPath.nameOrig), row.get(entityPath.nameNorm))));
+            SqaleUtils.markWithoutFullObject(ret);
+        } else {
+            // We load full object
 
-        upgradeLegacyMetadataToValueMetadata(ret);
-
-        if (GetOperationOptions.isAttachDiagData(SelectorOptions.findRootOptions(options))) {
-            RepositoryObjectDiagnosticData diagData = new RepositoryObjectDiagnosticData(fullObject.length);
-            ret.asPrismContainer().setUserData(RepositoryService.KEY_DIAG_DATA, diagData);
+            ret = parseSchemaObject(fullObject, oid.toString());
+            if (GetOperationOptions.isAttachDiagData(SelectorOptions.findRootOptions(options))) {
+                RepositoryObjectDiagnosticData diagData = new RepositoryObjectDiagnosticData(fullObject.length);
+                ret.asPrismContainer().setUserData(RepositoryService.KEY_DIAG_DATA, diagData);
+            }
         }
+        ret.version(Objects.requireNonNull(row.get(entityPath.version)).toString());
+        upgradeLegacyMetadataToValueMetadata(ret);
         return ret;
+    }
+
+    protected boolean isExcludeAll(@Nullable Collection<SelectorOptions<GetOperationOptions>> options) {
+        if (options == null) {
+            return false;
+        }
+        boolean rootExcluded = false;
+        for (var option : options) {
+            if (option.getOptions() != null) {
+                if (option.isRoot() && option.getOptions().getRetrieve() == RetrieveOption.EXCLUDE) {
+                    rootExcluded = true;
+                }
+                if (option.getOptions().getRetrieve() == RetrieveOption.INCLUDE) {
+                    return false;
+                }
+            }
+        }
+        return rootExcluded;
+    }
+
+    protected boolean isExcludeFullObject(@Nullable Collection<SelectorOptions<GetOperationOptions>> options) {
+        if (options == null) {
+            return false;
+        }
+        boolean rootExcluded = false;
+        for (var option : options) {
+            if (option.getOptions() != null) {
+                if (option.isRoot() && option.getOptions().getRetrieve() == RetrieveOption.EXCLUDE) {
+                    rootExcluded = true;
+                }
+                if (option.getOptions().getRetrieve() == RetrieveOption.INCLUDE) {
+                    if (!separatellySerializedItems.containsKey(option.getItemPath().firstName())) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return rootExcluded;
     }
 
     private void upgradeLegacyMetadataToValueMetadata(S ret) {
@@ -440,12 +508,49 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
      * Serializes schema object and sets {@link R#fullObject}.
      */
     public void setFullObject(R row, S schemaObject) throws SchemaException {
-        if (schemaObject.getOid() == null || schemaObject.getVersion() == null) {
+        var version = schemaObject.getVersion();
+        if (schemaObject.getOid() == null || version == null) {
             throw new IllegalArgumentException(
                     "Serialized object must have assigned OID and version: " + schemaObject);
         }
 
-        row.fullObject = createFullObject(schemaObject);
+        // We do not want version to be stored inside object, otherwise we will need to
+        // recompute full object on every change to separately serialized items
+        // We do not create clone without version because it would create additional memory constraints
+        schemaObject.version(null);
+        try {
+            row.fullObject = createFullObject(schemaObject);
+        } finally {
+            // The users of repository expects version to be present
+            schemaObject.version(version);
+        }
+    }
+
+    @Override
+    public Collection<SelectorOptions<GetOperationOptions>> updateGetOptions(Collection<SelectorOptions<GetOperationOptions>> options, @NotNull Collection<? extends ItemDelta<?, ?>> modifications, boolean forceReindex) {
+        var ret = new ArrayList<>(super.updateGetOptions(options, modifications, forceReindex));
+        // reindex = true - we need to fetch all items
+        if (forceReindex) {
+            // Currently by default all separatelly serialized items are fetched.
+            return ret;
+        }
+
+        // Walk deltas
+        boolean onlySeparatellySerialized = true;
+        for (var modification : modifications) {
+            var path = modification.getPath().firstName();
+            var separate = separatellySerializedItems.get(path);
+            if (separate == null) {
+                onlySeparatellySerialized = false;
+            } else {
+                ret.add(SelectorOptions.create(UniformItemPath.from(path), GetOperationOptions.createRetrieve()));
+            }
+        }
+        if (onlySeparatellySerialized) {
+            // Add Exclude All option
+            ret.add(SelectorOptions.create(UniformItemPath.from(ItemPath.EMPTY_PATH), GetOperationOptions.createDontRetrieve()));
+        }
+        return ret;
     }
 
     @Override
@@ -487,7 +592,6 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
         return fullObjectSkips;
     }
 
-
     private class FullObjectItemMapping<IQ extends FlexibleRelationalPathBase<IR>, IR> {
 
         protected final QSeparatelySerializedItem<IQ,IR> mapping;
@@ -504,12 +608,24 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
 
         public boolean isIncluded(Collection<SelectorOptions<GetOperationOptions>> options) {
             if (includedByDefault) {
-                var retrieveOptions = SelectorOptions.findOptionsForPath(options, UniformItemPath.from(this.getPath()));
-                if (retrieveOptions.stream().anyMatch(o -> RetrieveOption.EXCLUDE.equals(o.getRetrieve()))) {
-                    // There is at least one exclude for options
-                    return false;
+                ItemPath matchedPath = ItemPath.EMPTY_PATH;
+                RetrieveOption matchedOption = RetrieveOption.INCLUDE;
+                if (options == null) {
+                    options = Collections.emptyList();
                 }
-                return true;
+                for (var option : options) {
+                    if (!option.getItemPath().isSubPathOrEquivalent(getPath())) {
+                        // path is unrelevant
+                        continue;
+                    }
+                    if (matchedPath.isSubPathOrEquivalent(option.getItemPath())) {
+                        matchedPath = option.getItemPath();
+                        if (option.getOptions() != null && option.getOptions().getRetrieve() != null) {
+                            matchedOption = option.getOptions().getRetrieve();
+                        }
+                    }
+                }
+                return matchedOption == RetrieveOption.INCLUDE;
             }
             return SelectorOptions.hasToFetchPathNotRetrievedByDefault(getPath(), options);
         }
@@ -580,6 +696,7 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
                 }
             }
         }
+
     }
 
     protected void customizeFullObjectItemsToSkip(PathSet mutableSet) {
@@ -588,6 +705,12 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
 
     @Override
     public ResultListRowTransformer<S, Q, R> createRowTransformer(SqlQueryContext<S, Q, R> sqlQueryContext, JdbcSession jdbcSession, Collection<SelectorOptions<GetOperationOptions>> options) {
+
+        if (isExcludeAll(options)) {
+            // If exlude options is all, use default row transformer
+            return super.createRowTransformer(sqlQueryContext, jdbcSession, options);
+        }
+
         // here we should load external objects
 
         Map<MObjectType, Set<FullObjectItemMapping>> itemsToFetch = new HashMap<>();
@@ -709,5 +832,11 @@ public class QObjectMapping<S extends ObjectType, Q extends QObject<R>, R extend
     @Override
     protected CheckedFunction<SchemaRegistryState, ItemDefinition<?>, SystemException> definitionDerivation() {
         return definitionDerivation;
+    }
+
+    @Override
+    public void preprocessCacheableUris(S schemaObject) {
+        super.preprocessCacheableUris(schemaObject);
+        processCacheableUris(schemaObject.getPolicySituation());
     }
 }

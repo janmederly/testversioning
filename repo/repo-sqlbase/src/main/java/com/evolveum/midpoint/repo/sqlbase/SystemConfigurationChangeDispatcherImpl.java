@@ -15,6 +15,10 @@ import com.evolveum.midpoint.common.secrets.SecretsProviderManager;
 
 import com.evolveum.midpoint.prism.crypto.Protector;
 
+import com.evolveum.midpoint.schema.processor.AbstractResourceObjectDefinitionImpl;
+
+import com.evolveum.midpoint.schema.util.SystemConfigurationTypeUtil;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 
@@ -30,7 +34,6 @@ import com.evolveum.midpoint.repo.api.SystemConfigurationChangeEvent;
 import com.evolveum.midpoint.repo.api.SystemConfigurationChangeListener;
 import com.evolveum.midpoint.schema.GetOperationOptions;
 import com.evolveum.midpoint.schema.RelationRegistry;
-import com.evolveum.midpoint.schema.SelectorOptions;
 import com.evolveum.midpoint.schema.cache.CacheConfigurationManager;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.security.api.SecurityUtil;
@@ -76,12 +79,13 @@ public class SystemConfigurationChangeDispatcherImpl implements SystemConfigurat
         LOGGER.trace("Applying system configuration: lastVersionApplied = {}, ignoreVersion = {}",
                 lastVersionApplied, ignoreVersion);
 
-        Collection<SelectorOptions<GetOperationOptions>> options =
-                GetOperationOptions.createReadOnlyCollection();
         PrismObject<SystemConfigurationType> configurationObject;
         try {
-            configurationObject = repositoryService.getObject(SystemConfigurationType.class,
-                    SystemObjectsType.SYSTEM_CONFIGURATION.value(), options, result);
+            configurationObject = repositoryService.getObject(
+                    SystemConfigurationType.class,
+                    SystemObjectsType.SYSTEM_CONFIGURATION.value(),
+                    GetOperationOptions.createReadOnlyCollection(),
+                    result);
         } catch (ObjectNotFoundException e) {
             if (allowNotFound) {
                 LOGGER.debug("System configuration not found");
@@ -117,6 +121,7 @@ public class SystemConfigurationChangeDispatcherImpl implements SystemConfigurat
         applyRelationsConfiguration(configuration);
         applyOperationResultHandlingConfiguration(configuration);
         applyCachingConfiguration(configuration);
+        applyShadowCachingConfiguration(configuration);
         applyRepositoryConfiguration(configuration);
 
         if (lastVersionApplied != null) {
@@ -125,8 +130,6 @@ public class SystemConfigurationChangeDispatcherImpl implements SystemConfigurat
             LOGGER.warn("There was a problem during application of the system configuration");
         }
     }
-
-
 
     private void notifyListeners(SystemConfigurationType configuration) {
         for (SystemConfigurationChangeListener listener : listeners) {
@@ -237,6 +240,16 @@ public class SystemConfigurationChangeDispatcherImpl implements SystemConfigurat
             cacheConfigurationManager.applyCachingConfiguration(configuration);
         } catch (Throwable t) {
             LoggingUtils.logUnexpectedException(LOGGER, "Couldn't apply caching configuration", t);
+            lastVersionApplied = null;
+        }
+    }
+
+    private void applyShadowCachingConfiguration(SystemConfigurationType configuration) {
+        try {
+            AbstractResourceObjectDefinitionImpl.setSystemDefaultPolicy(
+                    SystemConfigurationTypeUtil.getShadowCachingDefaultPolicy(configuration));
+        } catch (Throwable t) {
+            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't apply shadow caching configuration", t);
             lastVersionApplied = null;
         }
     }

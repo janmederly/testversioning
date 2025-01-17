@@ -56,9 +56,9 @@ public class ExtensionProcessor {
                 }
 
                 Object value = extItemValue(item, extItemInfo);
-
-                extMap.put(extItemInfo.getId(), value);
-
+                if (value != null) {
+                    extMap.put(extItemInfo.getId(), value);
+                }
                 // We may need to add also single value index, if definition is dynamic;
                 // see additionalSingleValueIndexNeeded() javadoc for more information.
                 if (additionalSingleValueIndexNeeded(item, extItemInfo)) {
@@ -127,6 +127,7 @@ public class ExtensionProcessor {
         return info;
     }
 
+    @Nullable
     public Object extItemValue(Item<?, ?> item, ExtItemInfo extItemInfo) {
         MExtItem extItem = extItemInfo.item;
         if (extItem.cardinality == MExtItemCardinality.ARRAY) {
@@ -140,12 +141,19 @@ public class ExtensionProcessor {
         }
     }
 
+    @Nullable
     private Object convertExtItemValue(Object realValue, ExtItemInfo extItemInfo) {
+        if (realValue == null) {
+            return null;
+        }
         checkRealValueType(realValue, extItemInfo.item);
         if (realValue instanceof String
                 || realValue instanceof Number
                 || realValue instanceof Boolean) {
             return realValue;
+        }
+        if (realValue instanceof byte[] bytes) {
+            return JsonbUtils.bytesToBase64(bytes);
         }
 
         if (realValue instanceof PolyString) {
@@ -207,15 +215,17 @@ public class ExtensionProcessor {
             // Skip containers for now
             return null;
         }
-        if (definition instanceof PrismPropertyDefinition) {
-            Boolean indexed = ((PrismPropertyDefinition<?>) definition).isIndexed();
-            // null is default which is "indexed"
-            if (indexed != null && !indexed) {
+        if (definition instanceof PrismPropertyDefinition<?> prismPropertyDefinition) {
+            // Note that we don't want to turn off indexing for attributes, because they are stored in indexed form only
+            // (on native repository). The storage of attributes has to be turned off by disabling caching for them completely.
+            // Indexed=false can occur for attributes with storage = NOT_INDEXED, which is used for generic repo - for attributes
+            // that should be put into XML but cannot be stored in m_object_ext_xxx tables (e.g. because they are too large).
+            if (holderType == MExtItemHolderType.EXTENSION && Boolean.FALSE.equals(definition.isIndexed())) {
                 return null;
             }
             // enum is recognized by having allowed values
             if (!ExtUtils.isRegisteredType(definition.getTypeName())
-                    && !ExtUtils.isEnumDefinition(((PrismPropertyDefinition<?>) definition))) {
+                    && !ExtUtils.isEnumDefinition(prismPropertyDefinition)) {
                 return null;
             }
         } else if (!(definition instanceof PrismReferenceDefinition)) {

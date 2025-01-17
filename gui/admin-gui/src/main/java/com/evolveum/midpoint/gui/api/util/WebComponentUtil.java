@@ -19,8 +19,11 @@ import java.util.stream.StreamSupport;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.authentication.api.authorization.EndPointsUrlMapping;
+import com.evolveum.midpoint.authentication.api.authorization.Url;
 import com.evolveum.midpoint.gui.impl.component.input.converter.DateConverter;
 import com.evolveum.midpoint.gui.impl.component.action.AbstractGuiAction;
+import com.evolveum.midpoint.gui.impl.page.admin.focus.FocusDetailsModels;
 import com.evolveum.midpoint.model.api.trigger.TriggerHandler;
 import com.evolveum.midpoint.schema.processor.ResourceObjectTypeDefinition;
 import com.evolveum.midpoint.web.component.util.*;
@@ -42,7 +45,9 @@ import org.apache.wicket.authroles.authorization.strategies.role.Roles;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.behavior.Behavior;
 import org.apache.wicket.core.request.handler.RenderPageRequestHandler;
+import org.apache.wicket.extensions.markup.html.repeater.data.sort.SortOrder;
 import org.apache.wicket.extensions.markup.html.repeater.util.SortParam;
+import org.apache.wicket.extensions.markup.html.repeater.util.SortableDataProvider;
 import org.apache.wicket.extensions.markup.html.tabs.ITab;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.ComponentTag;
@@ -187,6 +192,8 @@ import com.evolveum.prism.xml.ns._public.types_3.ObjectDeltaType;
 import com.evolveum.prism.xml.ns._public.types_3.PolyStringTranslationType;
 import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
 import com.evolveum.prism.xml.ns._public.types_3.ProtectedStringType;
+
+import org.springframework.util.AntPathMatcher;
 
 /**
  * Utility class containing miscellaneous methods used mostly in Wicket
@@ -715,7 +722,25 @@ public final class WebComponentUtil {
         for (AuthorizationAction action : actions) {
             actionUris.add(action.actionUri());
         }
+
+        //fix for #10336. EndPointsUrlMapping also is used in auth-impl module to evaluate the authorization
+        Url[] pageUrl = descriptor.urls();
+        for (Url url : pageUrl) {
+            EndPointsUrlMapping endPointsUrlMapping = findEndPointsUrlMappingByUrl(url.matchUrlForSecurity());
+            if (endPointsUrlMapping != null) {
+                Arrays.stream(endPointsUrlMapping.getAction())
+                        .forEach(action -> actionUris.add(action.getValue()));
+            }
+        }
         return isAuthorized(actionUris);
+    }
+
+    private static EndPointsUrlMapping findEndPointsUrlMappingByUrl(String url) {
+        AntPathMatcher matcher = new AntPathMatcher();
+        return Arrays.stream(EndPointsUrlMapping.values())
+                .filter(e -> matcher.match(e.getUrl(), url))
+                .findFirst()
+                .orElse(null);
     }
 
     public static boolean isCertItemsMenusEnabled(ModelServiceLocator serviceLocator) {
@@ -1743,6 +1768,16 @@ public final class WebComponentUtil {
         long page = ((paging.getOffset() + itemsPerPage) / itemsPerPage) - 1;
         if (page < 0) {
             page = 0;
+        }
+
+        // update ordering (sortparam) directly in provider
+        if (paging.hasOrdering() && (table.getDataTable().getDataProvider() instanceof SortableDataProvider provider)) {
+            ItemPath path = paging.getPrimaryOrderingPath();
+            if (path != null) {
+                OrderDirection direction = paging.getPrimaryOrderingDirection();
+                SortOrder order = direction == OrderDirection.DESCENDING ? SortOrder.DESCENDING : SortOrder.ASCENDING;
+                provider.setSort(path.toString(), order);
+            }
         }
 
         table.getDataTable().setCurrentPage(page);
@@ -3203,8 +3238,7 @@ public final class WebComponentUtil {
             }
             return Collections.singletonList(
                     prismContext.queryFactory().createOrdering(
-                            ItemPath.create(new QName(SchemaConstantsGenerated.NS_COMMON, sortParam.getProperty())), order));
-
+                            ItemPath.fromString(sortParam.getProperty()), order));
         } else {
             return null;
         }
@@ -3829,6 +3863,11 @@ public final class WebComponentUtil {
             try {
                 Panel panel = ConstructorUtils.invokeConstructor(panelClass, markupId, objectDetailsModels.getObjectWrapperModel(), panelConfig);
                 panel.setOutputMarkupId(true);
+
+                var isHistoricalData = objectDetailsModels instanceof FocusDetailsModels<?>
+                        && ((FocusDetailsModels<?>) objectDetailsModels).isHistoricalObject();
+                ((AbstractAssignmentTypePanel) panel).setHistoricalData(isHistoricalData);
+
                 return panel;
             } catch (Throwable e) {
                 LOGGER.trace("No constructor found for (String, LoadableModel, ContainerPanelConfigurationType). Continue with lookup.", e);
@@ -3954,6 +3993,7 @@ public final class WebComponentUtil {
         }
 
         comp.add(AttributeAppender.append("class", () -> !comp.isEnabledInHierarchy() ? "disabled" : null));
+        comp.add(AttributeAppender.append("aria-disabled", () -> !comp.isEnabledInHierarchy() ? "true" : "false"));
     }
 
     public static CompiledGuiProfile getCompiledGuiProfile(Page page) {
@@ -4067,6 +4107,30 @@ public final class WebComponentUtil {
             //couldn't get deltas of items
         }
 
+        if (!deltas.isEmpty()) {
+            new Toast()
+                    .warning()
+                    .title(PageBase.createStringResourceStatic("WebComponentUtil.recordedButUnsavedChanges.title").getString())
+                    .icon("fa fa-exclamation")
+                    .autohide(true)
+                    .delay(5_000)
+                    .body(PageBase.createStringResourceStatic("WebComponentUtil.recordedButUnsavedChanges.body").getString())
+                    .show(target);
+        }
+    }
+
+    public static void showToastForRecordedButUnsavedChanges(AjaxRequestTarget target, PrismPropertyWrapper property) {
+        Collection<ItemDelta> deltas = List.of();
+        try {
+            deltas = property.getDelta();
+        } catch (SchemaException e) {
+            //couldn't get deltas of items
+        }
+
+        showToastForRecordedButUnsavedChanges(target, deltas);
+    }
+
+    private static void showToastForRecordedButUnsavedChanges(AjaxRequestTarget target, Collection<ItemDelta> deltas) {
         if (!deltas.isEmpty()) {
             new Toast()
                     .warning()
@@ -4265,5 +4329,22 @@ public final class WebComponentUtil {
         String key = "trigger." + handler.getClass().getName();
 
         return com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(key);
+    }
+
+    public static String getLabelForItemValue(PrismValueWrapper valueWrapper, PageBase pageBase){
+        if (valueWrapper == null) {
+            return "";
+        }
+
+        Object object = valueWrapper.getRealValue();
+        if (object instanceof Enum<?>) {
+            return WebComponentUtil.createLocalizedModelForEnum((Enum<?>) object, pageBase).getObject();
+        } else if (object instanceof PolyString) {
+            return com.evolveum.midpoint.gui.api.util.LocalizationUtil.translatePolyString((PolyString) object);
+        } else if (object instanceof Boolean) {
+            return WebComponentUtil.createLocalizedModelForBoolean((Boolean) object).getObject();
+        }
+
+        return valueWrapper.toShortString();
     }
 }

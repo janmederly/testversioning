@@ -207,7 +207,12 @@ public class MarksOfObjectListPanel<O extends ObjectType> extends MainObjectList
                             PrismPropertyWrapperModel.fromContainerValueWrapper(
                                     getModelPolicyStatement(rowModel),
                                     PolicyStatementType.F_TYPE),
-                            AbstractItemWrapperColumn.ColumnType.VALUE));
+                            AbstractItemWrapperColumn.ColumnType.VALUE) {
+                        @Override
+                        protected IModel<String> getCustomHeaderModel() {
+                            return getDisplayModel();
+                        }
+                    });
                 }
             }
         });
@@ -472,7 +477,7 @@ public class MarksOfObjectListPanel<O extends ObjectType> extends MainObjectList
                 return;
             }
 
-            if (dto.isTransitional()) {
+            if (!dto.isTransitional()) {
                 warn(createStringResource("MarksOfObjectListPanel.message.couldntRemove").getString());
                 target.add(getPageBase().getFeedbackPanel());
                 return;

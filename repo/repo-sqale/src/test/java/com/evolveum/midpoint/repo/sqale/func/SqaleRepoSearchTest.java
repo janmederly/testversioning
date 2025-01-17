@@ -28,9 +28,11 @@ import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 
 import com.evolveum.midpoint.prism.path.InfraItemName;
+import com.evolveum.midpoint.prism.xml.XmlTypeConverter;
 import com.evolveum.midpoint.repo.sqale.qmodel.focus.QUserMapping;
 import com.evolveum.midpoint.schema.GetOperationOptionsBuilder;
 
+import com.evolveum.midpoint.util.exception.ObjectAlreadyExistsException;
 import com.evolveum.midpoint.util.exception.ObjectNotFoundException;
 
 import org.jetbrains.annotations.Nullable;
@@ -192,7 +194,10 @@ public class SqaleRepoSearchTest extends SqaleRepoBaseTest {
                 .kind(ShadowKindType.ACCOUNT)
                 .intent("intent")
                 .tag("tag")
-                .extension(new ExtensionType());
+                .extension(new ExtensionType())
+                .behavior(new ShadowBehaviorType()
+                        .lastLoginTimestamp("2024-01-01T01:00:00")
+                );
         addExtensionValue(shadow1.getExtension(), "string", "string-value");
         ItemName shadowAttributeName = new ItemName("https://example.com/p", "string-mv");
         ShadowAttributesHelper attributesHelper = new ShadowAttributesHelper(shadow1)
@@ -880,6 +885,15 @@ public class SqaleRepoSearchTest extends SqaleRepoBaseTest {
                 f -> f.item(
                                 ItemPath.create(ShadowType.F_EFFECTIVE_MARK_REF, new ObjectReferencePathSegment(), MarkType.F_NAME))
                         .eq("protected"), shadow1Oid);
+    }
+
+    @Test
+    public void test180SearchShadowByLastLoginTimestamp() throws SchemaException {
+        when("searching for shadow owner by shadow OID");
+        searchObjectTest("have last login time before now", ShadowType.class,
+                f -> f.item(ShadowType.F_BEHAVIOR, ShadowBehaviorType.F_LAST_LOGIN_TIMESTAMP
+                                )
+                        .lt(XmlTypeConverter.createXMLGregorianCalendar()), shadow1Oid);
     }
 
     /**
@@ -2706,6 +2720,32 @@ public class SqaleRepoSearchTest extends SqaleRepoBaseTest {
                 "right-hand side nesting into multivalue container is not supported")
                 .isInstanceOf(SystemException.class);
     }
+
+
+    @Test
+    public void testOrderCaseByCreateTimestamp() throws Exception {
+        var result = createOperationResult();
+        when("Ordering by metadata/createTimestamp (wellformed)");
+        searchObjects(CaseType.class,
+                PrismContext.get().queryFor(CaseType.class)
+                        .desc(CaseType.F_METADATA, MetadataType.F_CREATE_TIMESTAMP)
+                        .build()
+                , result);
+
+        when("Ordering by @metadata/storage/createTimestamp");
+        searchObjects(CaseType.class,
+                PrismContext.get().queryFor(CaseType.class)
+                        .desc(InfraItemName.METADATA, ValueMetadataType.F_STORAGE, MetadataType.F_CREATE_TIMESTAMP)
+                        .build()
+                , result);
+
+        when("Ordering by metadata/createTimestamp (no namespaces)");
+        searchObjects(CaseType.class,
+                PrismContext.get().queryFor(CaseType.class)
+                        .desc(new QName("metadata"),new QName("createTimestamp"))
+                        .build()
+                , result);
+    }
     // endregion
 
     @Test
@@ -2716,6 +2756,67 @@ public class SqaleRepoSearchTest extends SqaleRepoBaseTest {
             var user = repositoryService.getObject(UserType.class, user1Oid, options, createOperationResult());
             assertThat(user.asObjectable().getAssignment()).isEmpty();
         }
+    }
+
+
+    @Test
+    public void test780OutliersByCluster() throws Exception {
+        var result = createOperationResult();
+
+        var cluster1Oid = repositoryService.addObject(new RoleAnalysisClusterType()
+                .name("Test Cluster 1").asPrismObject()
+                , null, result);
+
+        var cluster2Oid = repositoryService.addObject(new RoleAnalysisClusterType()
+                        .name("Test Cluster 2").asPrismObject()
+                , null, result);
+        var outlier1Oid = repositoryService.addObject(new RoleAnalysisOutlierType()
+                .name("Stevenson")
+                .partition(new RoleAnalysisOutlierPartitionType()
+                        .clusterRef(cluster1Oid, RoleAnalysisClusterType.COMPLEX_TYPE, ORG_DEFAULT)
+                ).asPrismObject(), null, result);
+        var outlier2Oid = repositoryService.addObject(new RoleAnalysisOutlierType()
+                .name("Stevenson 2")
+                .partition(new RoleAnalysisOutlierPartitionType()
+                        .clusterRef(cluster2Oid, RoleAnalysisClusterType.COMPLEX_TYPE, ORG_DEFAULT)
+                ).asPrismObject(), null, result);
+        var partitionClusterRefPath = RoleAnalysisOutlierType.F_PARTITION.append(RoleAnalysisOutlierPartitionType.F_CLUSTER_REF);
+        searchObjectTest("Outliers in cluster 1", RoleAnalysisOutlierType.class,
+                f -> f.ref(partitionClusterRefPath, RoleAnalysisClusterType.COMPLEX_TYPE, ORG_DEFAULT, cluster1Oid),
+                outlier1Oid);
+    }
+
+    @Test
+    public void test781SearchPatternsOrderedByReduction() throws SchemaException, ObjectAlreadyExistsException {
+        var result = createOperationResult();
+        var cluster1Oid = repositoryService.addObject(new RoleAnalysisClusterType()
+                        .name("Test Cluster 1")
+                        .detectedPattern(detectedPattern(1100))
+                        .detectedPattern(detectedPattern(1200))
+                        .asPrismObject()
+                , null, result);
+
+        var cluster2Oid = repositoryService.addObject(new RoleAnalysisClusterType()
+                        .name("Test Cluster 2")
+                        .detectedPattern(detectedPattern(1300))
+                        .asPrismObject()
+                , null, result);
+
+        var query = PrismContext.get().queryFor(RoleAnalysisDetectionPatternType.class)
+                        .desc(RoleAnalysisDetectionPatternType.F_REDUCTION_COUNT)
+                                .build();
+        var results = repositoryService.searchContainers(RoleAnalysisDetectionPatternType.class, query, null, result);
+        assertThat(results).isNotEmpty();
+        assertThat(results).map(RoleAnalysisDetectionPatternType::getReductionCount)
+                .containsExactly(1300.0,1200.0,1100.0);
+
+        assertThat(results).map(v -> v.asPrismContainerValue().getRootObjectable().getOid())
+                .containsExactly(cluster2Oid, cluster1Oid, cluster1Oid);
+
+    }
+
+    private RoleAnalysisDetectionPatternType detectedPattern(int count) {
+        return new RoleAnalysisDetectionPatternType().reductionCount((double) count);
     }
 
     // region reference search
@@ -3208,6 +3309,34 @@ public class SqaleRepoSearchTest extends SqaleRepoBaseTest {
 
         assertReferenceNamesSet(result);
     }
+
+    @Test
+    public void test962SearchUsersExcludeAll() throws SchemaException {
+        OperationResult opResult = createOperationResult();
+
+        ObjectQuery query = PrismContext.get().queryFor(UserType.class).all().build();
+        given("users contains assignments, role memberships, and operation executions");
+
+        SearchResultList<UserType> result =
+                searchObjects(UserType.class, query, opResult);
+
+        assertThat(result).extracting(UserType::getRoleMembershipRef).anyMatch(v -> !v.isEmpty());
+        assertThat(result).extracting(UserType::getAssignment).anyMatch(v -> !v.isEmpty());
+        assertThat(result).extracting(UserType::getOperationExecution).anyMatch(v -> !v.isEmpty());
+        when("search options have DONT RETRIEVE for empty path");
+        var options = SchemaService.get().getOperationOptionsBuilder()
+                .item(ItemPath.EMPTY_PATH).dontRetrieve()
+                .build();
+        result = searchObjects(UserType.class, query, opResult, options);
+        assertThatOperationResult(opResult).isSuccess();
+
+        then("results should not contain assignments / role memberships and operation executions");
+        assertThat(result).extracting(UserType::getRoleMembershipRef).allMatch(List::isEmpty);
+        assertThat(result).extracting(UserType::getAssignment).allMatch(List::isEmpty);
+        assertThat(result).extracting(UserType::getOperationExecution).allMatch(List::isEmpty);
+        assertNotNull(result);
+    }
+
 
     @Test
     public void test970IsAncestor() throws Exception {

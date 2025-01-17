@@ -47,6 +47,7 @@ public abstract class DummyObject implements DebugDumpable {
     private Boolean enabled = true;
     private Date validFrom = null;
     private Date validTo = null;
+    private Date lastLoginDate = null;
     private String lastModifier;
 
     /**
@@ -90,7 +91,7 @@ public abstract class DummyObject implements DebugDumpable {
     }
 
     public DummyResource getResourceRequired() {
-        return MiscUtil.stateNonNull(resource, "No resource set for " + this);
+        return MiscUtil.stateNonNull(resource, "No resource set for %s", this);
     }
 
     void setPresentOnResource(DummyResource resource) {
@@ -132,6 +133,23 @@ public abstract class DummyObject implements DebugDumpable {
         delayOperation();
         this.enabled = enabled;
         recordModify("_ENABLED", null, null, singletonList(enabled));
+        return this;
+    }
+
+    public Date getLastLoginDate() {
+        return lastLoginDate;
+    }
+
+    public DummyObject setLastLoginDate(Date lastLoginDate)
+            throws ConflictException, FileNotFoundException, SchemaViolationException, ConnectException, InterruptedException {
+
+        checkModifyBreak();
+        delayOperation();
+
+        this.lastLoginDate = lastLoginDate;
+
+        recordModify("_LAST_LOGIN_DATE", null, null, singletonList(lastLoginDate));
+
         return this;
     }
 
@@ -200,7 +218,7 @@ public abstract class DummyObject implements DebugDumpable {
     }
 
     public String getAttributeValue(String attrName) {
-        return getAttributeValue(attrName,String.class);
+        return getAttributeValue(attrName, String.class);
     }
 
     public DummyObject replaceAttributeValue(String name, Object value)
@@ -310,12 +328,7 @@ public abstract class DummyObject implements DebugDumpable {
         }
 
         if (resource != null && resource.isMonsterization() && DummyResource.VALUE_MONSTER.equals(valueToAdd)) {
-            Iterator<Object> iterator = currentValues.iterator();
-            while (iterator.hasNext()) {
-                if (DummyResource.VALUE_COOKIE.equals(iterator.next())) {
-                    iterator.remove();
-                }
-            }
+            currentValues.removeIf(DummyResource.VALUE_COOKIE::equals);
         }
 
         // an optimization: let's avoid attribute manipulation if we don't want to check the schema anyway

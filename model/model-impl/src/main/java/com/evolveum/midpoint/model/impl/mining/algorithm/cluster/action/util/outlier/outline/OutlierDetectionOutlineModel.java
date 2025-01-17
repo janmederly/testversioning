@@ -11,6 +11,10 @@ import static com.evolveum.midpoint.model.impl.mining.algorithm.cluster.action.u
 import java.util.ArrayList;
 import java.util.List;
 
+import com.evolveum.midpoint.common.mining.objects.analysis.cache.ObjectCategorisationCache;
+
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
+
 import com.google.common.collect.ListMultimap;
 import org.jetbrains.annotations.NotNull;
 
@@ -45,6 +49,7 @@ public class OutlierDetectionOutlineModel {
             @NotNull RoleAnalysisService roleAnalysisService,
             @NotNull RoleAnalysisSessionType session,
             @NotNull RoleAnalysisClusterType cluster,
+            @NotNull ObjectCategorisationCache objectCategorisationCache,
             @NotNull Task task,
             @NotNull OperationResult result) {
         UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
@@ -64,10 +69,11 @@ public class OutlierDetectionOutlineModel {
         this.roleAnalysisAttributeDef = roleAnalysisService.resolveAnalysisAttributes(
                 session, RoleType.COMPLEX_TYPE);
 
-        RangeType propertiesRange = userModeOptions.getPropertiesRange();
+        SearchFilterType userSearchFilter = userModeOptions.getUserSearchFilter();
+        SearchFilterType roleSearchFilter = userModeOptions.getRoleSearchFilter();
+        SearchFilterType assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
         this.chunkMap = roleAnalysisService.loadUserForOutlierComparison(roleAnalysisService, outliersClusterMembers,
-                propertiesRange.getMin().intValue(), propertiesRange.getMax().intValue(),
-                userModeOptions.getQuery(), result, task);
+                objectCategorisationCache, userSearchFilter, roleSearchFilter, assignmentSearchFilter, result, task, session);
         this.analysisOption = session.getAnalysisOption();
         this.session = session;
         this.cluster = cluster;

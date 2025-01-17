@@ -74,11 +74,9 @@ import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.test.DummyResourceContoller;
 import com.evolveum.midpoint.test.IntegrationTestTools;
 import com.evolveum.midpoint.test.ObjectChecker;
-import com.evolveum.midpoint.test.asserter.RepoShadowAsserter;
 import com.evolveum.midpoint.test.asserter.ShadowAsserter;
 import com.evolveum.midpoint.test.util.TestUtil;
 import com.evolveum.midpoint.util.DOMUtil;
-import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.exception.CommonException;
 import com.evolveum.midpoint.util.exception.ConfigurationException;
 import com.evolveum.midpoint.util.exception.SchemaException;
@@ -875,6 +873,15 @@ public class AbstractBasicDummyTest extends AbstractDummyTest {
         RunAsCapabilityType capRunAs = CapabilityUtil.getCapability(nativeCapabilities, RunAsCapabilityType.class);
         assertRunAsCapability(capRunAs);
 
+        if (areReferencesSupportedNatively()) {
+            var capability = CapabilityUtil.getCapability(nativeCapabilities, ReferencesCapabilityType.class);
+            assertThat(capability)
+                    .as("'references' native capability")
+                    .isNotNull()
+                    .extracting(CapabilityType::isEnabled)
+                    .isNotEqualTo(Boolean.FALSE);
+        }
+
         capabilitiesCachingMetadataType = resourceType.getCapabilities().getCachingMetadata();
         assertNotNull("No capabilities caching metadata", capabilitiesCachingMetadataType);
         assertNotNull("No capabilities caching metadata timestamp", capabilitiesCachingMetadataType.getRetrievalTimestamp());
@@ -1312,7 +1319,7 @@ public class AbstractBasicDummyTest extends AbstractDummyTest {
         ProvisioningContext ctx = provisioningContextFactory.createForShadowCoordinates(coords, task, result);
 
         // WHEN
-        ShadowItemsToReturn shadowItemsToReturn = ctx.createAttributesToReturn();
+        var shadowItemsToReturn = ctx.createItemsToReturn();
 
         // THEN
         displayValue("attributesToReturn", shadowItemsToReturn);
@@ -1643,6 +1650,8 @@ public class AbstractBasicDummyTest extends AbstractDummyTest {
         assertRepoShadowCacheActivation(repoShadow, ActivationStatusType.DISABLED);
         assertRepoShadowCredentials(repoShadow, ACCOUNT_WILL_PASSWORD);
 
+        assertPolyStringIndexOnly(result);
+
         checkUniqueness(shadow);
 
         assertNoCachingMetadata(shadow.getBean());
@@ -1650,26 +1659,8 @@ public class AbstractBasicDummyTest extends AbstractDummyTest {
         assertSteadyResource();
     }
 
-    @NotNull ResourceObjectDefinition getAccountDefaultDefinition() throws SchemaException, ConfigurationException {
-        return MiscUtil.stateNonNull(
-                Resource.of(resourceBean)
-                        .getCompleteSchemaRequired()
-                        .getObjectTypeDefinition(ShadowKindType.ACCOUNT, SchemaConstants.INTENT_DEFAULT),
-                "No account/default definition in %s", resourceBean);
-    }
-
-    @NotNull ResourceObjectDefinition getGroupDefaultDefinition() throws SchemaException, ConfigurationException {
-        return MiscUtil.stateNonNull(
-                Resource.of(resourceBean)
-                        .getCompleteSchemaRequired()
-                        .findDefinitionForObjectClass(RI_GROUP_OBJECT_CLASS),
-                "No group definition in %s", resourceBean);
-    }
-
-    protected @NotNull Collection<? extends QName> getCachedAccountAttributes() throws SchemaException, ConfigurationException {
-        return InternalsConfig.isShadowCachingOnByDefault() ?
-                getAccountDefaultDefinition().getAttributeNames() :
-                getAccountDefaultDefinition().getAllIdentifiersNames();
+    void assertPolyStringIndexOnly(OperationResult result) throws SchemaException, ObjectNotFoundException {
+        // for index-only caching tests
     }
 
     @Test
@@ -1845,47 +1836,10 @@ public class AbstractBasicDummyTest extends AbstractDummyTest {
             assertNotNull("No password value in repo shadow " + shadowRepo, protectedString);
             assertProtectedString(
                     "Wrong password value in repo shadow " + shadowRepo, expectedPassword,
-                    protectedString, CredentialsStorageTypeType.HASHING);
+                    protectedString, CredentialsStorageTypeType.ENCRYPTION);
         } else {
             ProtectedStringType passwordValue = passwordBean.getValue();
             assertNull("Unexpected password value in repo shadow " + shadowRepo, passwordValue);
         }
-    }
-
-    protected ShadowSimpleAttributeDefinition<?> getAccountAttrDef(String name) throws SchemaException, ConfigurationException {
-        return requireNonNull(
-                getAccountObjectClassDefinition().findSimpleAttributeDefinition(name));
-    }
-
-    protected ShadowSimpleAttributeDefinition<?> getAccountAttrDef(QName name) throws SchemaException, ConfigurationException {
-        return requireNonNull(
-                getAccountObjectClassDefinition().findSimpleAttributeDefinition(name));
-    }
-
-    @NotNull
-    private ResourceObjectClassDefinition getAccountObjectClassDefinition() throws SchemaException, ConfigurationException {
-        ResourceSchema resourceSchema =
-                requireNonNull(
-                        ResourceSchemaFactory.getCompleteSchemaRequired(resource));
-        return requireNonNull(
-                resourceSchema.findObjectClassDefinition(RI_ACCOUNT_OBJECT_CLASS));
-    }
-
-    /** TODO reconcile with {@link #assertRepoShadow(String)} */
-    RepoShadowAsserter<Void> assertRepoShadowNew(@NotNull String oid)
-            throws SchemaException, ConfigurationException, ObjectNotFoundException {
-        return assertRepoShadow(oid, getCachedAccountAttributes());
-    }
-
-    /** TODO reconcile with {@link #assertRepoShadow(String)} */
-    RepoShadowAsserter<Void> assertRepoShadowNew(@NotNull RawRepoShadow rawRepoShadow)
-            throws SchemaException, ConfigurationException {
-        return RepoShadowAsserter.forRepoShadow(rawRepoShadow, getCachedAccountAttributes());
-    }
-
-    /** TODO reconcile with {@link #assertRepoShadow(String)} */
-    RepoShadowAsserter<Void> assertRepoShadowNew(@NotNull PrismObject<ShadowType> rawRepoShadow)
-            throws SchemaException, ConfigurationException {
-        return RepoShadowAsserter.forRepoShadow(rawRepoShadow, getCachedAccountAttributes());
     }
 }

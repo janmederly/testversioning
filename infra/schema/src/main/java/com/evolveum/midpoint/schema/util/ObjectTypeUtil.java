@@ -20,6 +20,7 @@ import java.util.stream.Stream;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.prism.lazy.LazyXNodeBasedPrismValue;
 import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.exception.SystemException;
 
@@ -747,21 +748,26 @@ public class ObjectTypeUtil {
 
     public static void normalizeAllRelations(PrismValue value, RelationRegistry relationRegistry) {
         if (value != null) {
-            value.accept(createNormalizingVisitor(relationRegistry));
+            value.acceptVisitor(createNormalizingVisitor(relationRegistry));
         }
     }
 
     public static void normalizeAllRelations(Item<?, ?> item, RelationRegistry relationRegistry) {
         if (item != null) {
-            item.accept(createNormalizingVisitor(relationRegistry));
+            item.acceptVisitor(createNormalizingVisitor(relationRegistry));
         }
     }
 
-    private static Visitor createNormalizingVisitor(RelationRegistry relationRegistry) {
+    private static PrismVisitor createNormalizingVisitor(RelationRegistry relationRegistry) {
         return v -> {
+
             if (v instanceof PrismReferenceValue) {
                 normalizeRelation((PrismReferenceValue) v, relationRegistry);
             }
+            if (v instanceof PrismValue pv && LazyXNodeBasedPrismValue.isNotMaterialized(pv)) {
+                return false;
+            }
+            return true;
         };
     }
 
@@ -1065,9 +1071,14 @@ public class ObjectTypeUtil {
         return ((PrismContainerValue<ExtensionType>) extensionContainer.getValue());
     }
 
+    public static @Nullable OperationResultStatusType getFetchStatus(@NotNull ObjectType object) {
+        var fetchResult = object.getFetchResult();
+        return fetchResult != null ? fetchResult.getStatus() : null;
+    }
+
     public static boolean hasFetchError(@NotNull PrismObject<? extends ObjectType> object) {
-        OperationResultType fetchResult = object.asObjectable().getFetchResult();
-        return fetchResult != null && OperationResultUtil.isError(fetchResult.getStatus());
+        return OperationResultUtil.isError(
+                getFetchStatus(object.asObjectable()));
     }
 
     public static void recordFetchError(ObjectType object, OperationResult result) {
@@ -1486,5 +1497,30 @@ public class ObjectTypeUtil {
     public static boolean hasEffectiveMarkRef(@NotNull ObjectType object, @NotNull String markOid) {
         return getReallyEffectiveMarkRefStream(object)
                 .anyMatch(ref -> markOid.equals(ref.getOid()));
+    }
+
+    /**
+     * Extracts type class from the {@link Referencable}. Expected type is provided for cases when the type in reference
+     * is missing or (for any reason) incorrect.
+     *
+     * Useful e.g. for resolving references.
+     */
+    public static <O extends ObjectType> @NotNull Class<O> getTypeClass(
+            @NotNull Referencable ref, @NotNull Class<O> expectedType) throws SchemaException {
+        QName typeName = ref.getType();
+        if (typeName != null) {
+            Class<?> typeClass = PrismContext.get().getSchemaRegistry().determineCompileTimeClass(typeName);
+            if (typeClass != null) {
+                if (expectedType.isAssignableFrom(typeClass)) {
+                    //noinspection unchecked
+                    return (Class<O>) typeClass;
+                } else {
+                    // Maybe the type in the reference is too generic?
+                    // E.g. the reference is to FocusType, but we expect UserType.
+                    // In such cases, we simply return the expected type.
+                }
+            }
+        }
+        return expectedType;
     }
 }

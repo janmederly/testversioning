@@ -126,7 +126,7 @@ class AuthenticationWrapper {
             var operation = "loadSecurityPolicyForArchetype";
             Task task = taskManager.createTaskInstance(operation);
             OperationResult result = new OperationResult(operation);
-            return modelInteractionService.getSecurityPolicy(null, archetypeOid, task, result);
+            return modelInteractionService.getSecurityPolicyForArchetype(archetypeOid, task, result);
         } catch (Exception ex) {
             LOGGER.debug("Couldn't load security policy for archetype");
         }
@@ -322,9 +322,9 @@ class AuthenticationWrapper {
 
     private void clearAuthentication(HttpServletRequest httpRequest) {
         Authentication oldAuthentication = SecurityContextHolder.getContext().getAuthentication();
-        if (!AuthSequenceUtil.isClusterSequence(httpRequest) && oldAuthentication instanceof MidpointAuthentication) {
-            removeUnusedSecurityFilterPublisher.publishCustomEvent(
-                    ((MidpointAuthentication) oldAuthentication).getAuthModules());
+        if (!AuthSequenceUtil.isClusterSequence(httpRequest) && oldAuthentication instanceof MidpointAuthentication mpAuthentication) {
+            removeUnusedSecurityFilterPublisher.publishCustomEvent(mpAuthentication.getAuthModules());
+            mpAuthentication.restart();
         }
         SecurityContextHolder.getContext().setAuthentication(null);
     }
@@ -352,7 +352,7 @@ class AuthenticationWrapper {
         mpAuthentication.setAuthenticationChannel(authenticationChannel);
         mpAuthentication.setSessionId(httpRequest.getSession(false) != null ?
                 httpRequest.getSession(false).getId() : RandomStringUtils.random(30, true, true).toUpperCase());
-        mpAuthentication.addAuthentications(authModules.get(0).getBaseModuleAuthentication());
+        mpAuthentication.addAuthentication(authModules.get(0).getBaseModuleAuthentication());
         clearAuthentication(httpRequest);
         SecurityContextHolder.getContext().setAuthentication(mpAuthentication);
     }

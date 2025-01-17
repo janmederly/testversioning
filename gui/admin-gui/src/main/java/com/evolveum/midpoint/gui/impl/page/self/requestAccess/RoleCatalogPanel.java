@@ -11,6 +11,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
+
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -208,8 +210,6 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
 
     private void updateQueryFromOrgRef(RoleCatalogQuery query, ObjectReferenceType ref) {
         query.setQuery(null);
-        query.setType(DEFAULT_ROLE_CATALOG_TYPE);
-
         query.setParent(ref);
     }
 
@@ -558,6 +558,13 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
                             protected IModel<IResource> createPreferredImage(IModel<CatalogTile<SelectableBean<ObjectType>>> model) {
                                 return createImage(() -> model.getObject().getValue().getValue());
                             }
+
+                            @Override
+                            protected String getAlternativeTextForImage(IModel<CatalogTile<SelectableBean<ObjectType>>> model) {
+                                return LocalizationUtil.translate(
+                                        "RoleCatalogPanel.image.alt",
+                                        new Object[]{WebComponentUtil.getDisplayNameOrName(model.getObject().getValue().getValue().asPrismObject())});
+                            }
                         };
                     }
 
@@ -574,6 +581,15 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
                     @Override
                     protected IModel<Search> createSearchModel() {
                         return searchModel;
+                    }
+
+                    @Override
+                    public void refresh(AjaxRequestTarget target) {
+                        //in case the type was changed on the search panel
+                        Class<? extends AbstractRoleType> searchType = searchModel.getObject().getTypeClass();
+                        queryModel.getObject().setType(searchType);
+
+                        super.refresh(target);
                     }
                 };
         add(tilesTable);
@@ -592,6 +608,7 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
                     Toggle<ViewToggle> asList = new Toggle<>("fa-solid fa-table-list", null);
                     asList.setActive(ViewToggle.TABLE == toggle);
                     asList.setValue(ViewToggle.TABLE);
+                    asList.setTitle(LocalizationUtil.translate("TileTablePanel.switchToTable"));
                     list.add(asList);
                 }
 
@@ -599,6 +616,7 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
                     Toggle<ViewToggle> asTile = new Toggle<>("fa-solid fa-table-cells", null);
                     asTile.setActive(ViewToggle.TILE == toggle);
                     asTile.setValue(ViewToggle.TILE);
+                    asTile.setTitle(LocalizationUtil.translate("TileTablePanel.switchToTile"));
                     list.add(asTile);
                 }
 
@@ -947,6 +965,7 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
         ObjectQuery query = getPrismContext()
                 .queryFor(ot.getClassDefinition())
                 .isInScopeOf(ref.getOid(), OrgFilter.Scope.ONE_LEVEL)
+                .asc(AbstractRoleType.F_DISPLAY_NAME)
                 .asc(ObjectType.F_NAME)
                 .build();
 
@@ -1035,6 +1054,13 @@ public class RoleCatalogPanel extends WizardStepPanel<RequestAccess> implements 
             protected DisplayType createDisplayType(IModel<SelectableBean<ObjectType>> model) {
                 OperationResult result = new OperationResult("getIcon");
                 return GuiDisplayTypeUtil.getDisplayTypeForObject(model.getObject().getValue(), result, getPageBase());
+            }
+
+            @Override
+            protected String getAlternativeTextForImage(IModel<SelectableBean<ObjectType>> model) {
+                return LocalizationUtil.translate(
+                        "RoleCatalogPanel.image.alt",
+                        new Object[]{WebComponentUtil.getDisplayNameOrName(model.getObject().getValue().asPrismObject())});
             }
         });
         columns.add(new AbstractColumn<>(createStringResource("ObjectType.name")) {

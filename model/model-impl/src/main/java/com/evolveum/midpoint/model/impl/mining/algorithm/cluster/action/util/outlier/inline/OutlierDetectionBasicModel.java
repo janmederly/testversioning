@@ -12,6 +12,8 @@ import com.evolveum.midpoint.common.mining.objects.chunk.MiningRoleTypeChunk;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisSortMode;
 import com.evolveum.midpoint.common.mining.utils.values.ZScoreData;
 
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
+
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningOperationChunk;
@@ -31,14 +33,15 @@ public class OutlierDetectionBasicModel {
     MiningOperationChunk miningOperationChunk;
     RoleAnalysisOptionType analysisOption;
     RoleAnalysisProcessModeType processMode;
-    RangeType frequencyRange;
+    RangeType standardDeviation;
     Double sensitivity;
     double similarityThreshold;
     List<RoleAnalysisAttributeDef> attributesForUserAnalysis;
-    int userCountInRepo = 0;
+    int userCountInRepo;
     ZScoreData zScoreData;
     List<MiningRoleTypeChunk> miningRoleTypeChunks;
     int countOfRoles;
+    Double frequencyThreshold;
 
     OutlierNoiseCategoryType noiseCategory = OutlierNoiseCategoryType.SUITABLE;
     OutlierClusterCategoryType outlierCategory = OutlierClusterCategoryType.INNER_OUTLIER;
@@ -55,16 +58,24 @@ public class OutlierDetectionBasicModel {
         this.analysisOption = session.getAnalysisOption();
         this.processMode = analysisOption.getProcessMode();
 
-        this.miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(cluster, null, true,
+        UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
+        SearchFilterType userSearchFilter = userModeOptions.getUserSearchFilter();
+        SearchFilterType roleSearchFilter = userModeOptions.getRoleSearchFilter();
+        SearchFilterType assignmentSearchFilter = userModeOptions.getAssignmentSearchFilter();
+
+        this.miningOperationChunk = roleAnalysisService.prepareCompressedMiningStructure(cluster,
+                userSearchFilter, roleSearchFilter, assignmentSearchFilter, true,
                 processMode, result, task);
 
         RoleAnalysisDetectionOptionType defaultDetectionOption = session.getDefaultDetectionOption();
-        this.frequencyRange = defaultDetectionOption.getFrequencyRange();
+        this.standardDeviation = defaultDetectionOption.getStandardDeviation();
+        this.frequencyThreshold = defaultDetectionOption.getFrequencyThreshold() == null
+                ? 0.5
+                : defaultDetectionOption.getFrequencyThreshold();
         this.sensitivity = defaultDetectionOption.getSensitivity() == null
                 ? 0.0
                 : defaultDetectionOption.getSensitivity();
 
-        UserAnalysisSessionOptionType userModeOptions = session.getUserModeOptions();
         this.similarityThreshold = userModeOptions.getSimilarityThreshold() == null
                 ? 0.0
                 : userModeOptions.getSimilarityThreshold();
@@ -92,7 +103,7 @@ public class OutlierDetectionBasicModel {
             this.countOfRoles += miningRoleTypeChunk.getRoles().size();
         }
 
-        this.zScoreData = roleAnalysisService.resolveOutliersZScore(miningRoleTypeChunks, frequencyRange, sensitivity);
+        this.zScoreData = roleAnalysisService.resolveOutliersZScore(miningRoleTypeChunks, standardDeviation, sensitivity, frequencyThreshold);
     }
 
     public RoleAnalysisProcessModeType getProcessMode() {
@@ -107,8 +118,8 @@ public class OutlierDetectionBasicModel {
         return analysisOption;
     }
 
-    public RangeType getFrequencyRange() {
-        return frequencyRange;
+    public RangeType getStandardDeviation() {
+        return standardDeviation;
     }
 
     public Double getSensitivity() {

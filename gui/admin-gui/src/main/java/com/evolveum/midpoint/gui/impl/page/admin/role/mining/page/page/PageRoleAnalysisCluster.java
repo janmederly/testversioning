@@ -30,7 +30,7 @@ import org.jetbrains.annotations.NotNull;
 import com.evolveum.midpoint.authentication.api.authorization.AuthorizationAction;
 import com.evolveum.midpoint.authentication.api.authorization.PageDescriptor;
 import com.evolveum.midpoint.authentication.api.authorization.Url;
-import com.evolveum.midpoint.common.mining.objects.detection.DetectionOption;
+import com.evolveum.midpoint.common.mining.objects.detection.PatternDetectionOption;
 import com.evolveum.midpoint.gui.api.GuiStyleConstants;
 import com.evolveum.midpoint.gui.api.model.LoadableModel;
 import com.evolveum.midpoint.gui.api.page.PageBase;
@@ -47,6 +47,8 @@ import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.web.component.AjaxCompositedIconSubmitButton;
 import com.evolveum.midpoint.web.util.OnePageParameterEncoder;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+
+import org.jetbrains.annotations.Nullable;
 
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.RoleAnalysisWebUtils.CLASS_CSS;
 
@@ -84,12 +86,32 @@ public class PageRoleAnalysisCluster extends PageAssignmentHolderDetails<RoleAna
     @Override
     protected void onBackPerform(AjaxRequestTarget target) {
         PageParameters parameters = new PageParameters();
+
         ObjectReferenceType roleAnalysisSessionRef = getModelObjectType().getRoleAnalysisSessionRef();
         parameters.add(OnePageParameterEncoder.PARAMETER, roleAnalysisSessionRef.getOid());
-        parameters.add("panelId", "clusters");
+        parameters.add("panelId", getBackPerformPanelId(getModelObjectType()));
         Class<? extends PageBase> detailsPageClass = DetailsPageUtil
                 .getObjectDetailsPage(RoleAnalysisSessionType.class);
         ((PageBase) getPage()).navigateToNext(detailsPageClass, parameters);
+    }
+
+    private @Nullable String getBackPerformPanelId(@NotNull RoleAnalysisClusterType cluster) {
+        PageBase pageBase = ((PageBase) getPage());
+        RoleAnalysisService roleAnalysisService = pageBase.getRoleAnalysisService();
+        Task task = pageBase.createSimpleTask("Retrieve cluster session");
+        OperationResult result = task.getResult();
+        PrismObject<RoleAnalysisSessionType> sessionTypeObject = roleAnalysisService
+                .getSessionTypeObject(cluster.getRoleAnalysisSessionRef().getOid(), task, result);
+        if (sessionTypeObject == null) {
+            return null;
+        }
+        RoleAnalysisOptionType analysisOption = sessionTypeObject.asObjectable().getAnalysisOption();
+        RoleAnalysisProcedureType procedureType = analysisOption.getAnalysisProcedureType();
+        if (procedureType.equals(RoleAnalysisProcedureType.OUTLIER_DETECTION)) {
+            return "outlier-clustering-result";
+        }
+
+        return "mining-clustering-result";
     }
 
     @Override
@@ -127,7 +149,7 @@ public class PageRoleAnalysisCluster extends PageAssignmentHolderDetails<RoleAna
             }
 
             @Override
-            protected void onError(AjaxRequestTarget target) {
+            protected void onError(@NotNull AjaxRequestTarget target) {
                 target.add(((PageBase) getPage()).getFeedbackPanel());
             }
         };
@@ -154,7 +176,7 @@ public class PageRoleAnalysisCluster extends PageAssignmentHolderDetails<RoleAna
 
         PageBase pageBase = (PageBase) getPage();
         Task task = pageBase.createSimpleTask(OP_PATTERN_DETECTION);
-        DetectionOption detectionOption = new DetectionOption(cluster);
+        PatternDetectionOption detectionOption = new PatternDetectionOption(cluster);
         RoleAnalysisService roleAnalysisService = pageBase.getRoleAnalysisService();
 
         @NotNull String status = roleAnalysisService.recomputeAndResolveClusterOpStatus(clusterPrismObject.getOid(), result, task,
@@ -267,7 +289,7 @@ public class PageRoleAnalysisCluster extends PageAssignmentHolderDetails<RoleAna
         for (ContainerPanelConfigurationType containerPanelConfigurationType : object) {
             if (containerPanelConfigurationType.getIdentifier().equals("actions")) {
                 resolveActionPanel(containerPanelConfigurationType, category, roleAnalysisOptionType);
-            } else if (containerPanelConfigurationType.getIdentifier().equals("detectedPattern")
+            } else if (containerPanelConfigurationType.getIdentifier().equals("clusterRoleSuggestions")
                     && procedureType.equals(RoleAnalysisProcedureType.OUTLIER_DETECTION)) {
                 containerPanelConfigurationType.setVisibility(UserInterfaceElementVisibilityType.HIDDEN);
             }

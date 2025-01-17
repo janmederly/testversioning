@@ -1325,6 +1325,8 @@ public interface MidpointFunctions {
      * If this method returns true value then the script code is evaluating "new" value.
      * That means a value that is going to be set to target, e.g.
      * value from "add" or "replace" parts of the delta.
+     * If the script evaluates existing value that is not being modified (e.g. during 
+     * a recomputation), that is also considered as "new" (going to be set to target) value.
      * If this method returns false value then the script code is evaluating "old" value.
      * That means a value that is used for the purposes of removing values from target,
      * e.g. value from "delete" part of the delta or values from an existing object.
@@ -1517,8 +1519,25 @@ public interface MidpointFunctions {
     <T> TypedQuery<T> queryFor(Class<T> type, String query) throws SchemaException;
 
     <T> PreparedQuery<T> preparedQueryFor(Class<T> type, String query) throws SchemaException;
+
     <T extends ObjectType> List<T> searchObjects(TypedQuery<T> query) throws SchemaException,
             ObjectNotFoundException, SecurityViolationException, CommunicationException, ConfigurationException, ExpressionEvaluationException;
+
+    default <T extends ObjectType> List<T> searchObjects(TypedQuery<T> query, Collection<SelectorOptions<GetOperationOptions>> options) throws SchemaException,
+            ObjectNotFoundException, SecurityViolationException, CommunicationException, ConfigurationException, ExpressionEvaluationException {
+        return searchObjects(query.getType(), query.toObjectQuery(), options);
+    }
+
+    default <T extends ObjectType> void searchObjectsIterative(TypedQuery<T> query, ResultHandler<T> handler) throws SchemaException,
+            ObjectNotFoundException, SecurityViolationException, CommunicationException, ConfigurationException, ExpressionEvaluationException {
+        searchObjectsIterative(query.getType(), query.toObjectQuery(), handler);
+    }
+
+    default <T extends ObjectType> void searchObjectsIterative(TypedQuery<T> query, ResultHandler<T> handler, Collection<SelectorOptions<GetOperationOptions>> options) throws SchemaException,
+            ObjectNotFoundException, SecurityViolationException, CommunicationException, ConfigurationException, ExpressionEvaluationException {
+        searchObjectsIterative(query.getType(), query.toObjectQuery(), handler, options);
+    }
+
 
     @FunctionalInterface
     interface TriggerCustomizer {
@@ -1686,6 +1705,15 @@ public interface MidpointFunctions {
 
     default @NotNull Collection<String> getCertifierComments(@NotNull AssignmentType assignment) {
         return ValueMetadataTypeUtil.getCertifierComments(assignment);
+    }
+
+    default GetOperationOptionsBuilder getOperationOptionsBuilder() {
+        return GetOperationOptionsBuilder.create();
+    }
+
+    default @NotNull Collection<SelectorOptions<GetOperationOptions>> onlyBaseObject() {
+        return getOperationOptionsBuilder()
+                .item(ItemPath.EMPTY_PATH).dontRetrieve().build();
     }
 
 

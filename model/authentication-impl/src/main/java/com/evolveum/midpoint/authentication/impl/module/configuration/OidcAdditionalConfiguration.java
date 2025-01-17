@@ -27,22 +27,31 @@ public class OidcAdditionalConfiguration implements Serializable {
     private static final Trace LOGGER = TraceManager.getTrace(OidcAdditionalConfiguration.class);
 
     private final String singingAlg;
+    private final String idTokenSingingAlg;
     private final RSAPublicKey publicKey;
     private final RSAPrivateKey privateKey;
     private final Base64URL thumbprint;
     private final Base64URL thumbprint256;
+    private final boolean usePKCE;
 
     private OidcAdditionalConfiguration(
-            String singingAlg, RSAPublicKey publicKey, RSAPrivateKey privateKey, String thumbprint, String thumbprint256) {
+            String singingAlg, RSAPublicKey publicKey, RSAPrivateKey privateKey, String thumbprint,
+            String thumbprint256, boolean usePKCE, String idTokenSingingAlg) {
         this.singingAlg = singingAlg;
         this.publicKey = publicKey;
         this.privateKey = privateKey;
         this.thumbprint = thumbprint != null ? createBase64(thumbprint) : null;
         this.thumbprint256 = thumbprint256 != null ? createBase64(thumbprint256) : null;
+        this.usePKCE = usePKCE;
+        this.idTokenSingingAlg = idTokenSingingAlg;
     }
 
     public String getSingingAlg() {
         return singingAlg;
+    }
+
+    public String getIdTokenSingingAlg() {
+        return idTokenSingingAlg;
     }
 
     public RSAPrivateKey getPrivateKey() {
@@ -61,6 +70,10 @@ public class OidcAdditionalConfiguration implements Serializable {
         return thumbprint256;
     }
 
+    public boolean isUsePKCE() {
+        return usePKCE;
+    }
+
     private Base64URL createBase64(@NotNull String thumbprint) {
         try {
             return Base64URL.encode(Hex.decodeHex(thumbprint.toUpperCase()));
@@ -77,17 +90,25 @@ public class OidcAdditionalConfiguration implements Serializable {
     public static final class Builder {
 
         private String singingAlg;
+        private String idTokenSingingAlg;
         private RSAPublicKey publicKey;
         private RSAPrivateKey privateKey;
 
         private String thumbprint;
         private String thumbprint256;
 
+        private boolean usePKCE = false;
+
         private Builder() {
         }
 
         public Builder singingAlg(String singingAlg) {
             this.singingAlg = singingAlg;
+            return this;
+        }
+
+        public Builder idTokenSingingAlg(String idTokenSingingAlg) {
+            this.idTokenSingingAlg = idTokenSingingAlg;
             return this;
         }
 
@@ -111,9 +132,16 @@ public class OidcAdditionalConfiguration implements Serializable {
             return this;
         }
 
+        public Builder usePKCE(Boolean usePKCE) {
+            if (usePKCE != null) {
+                this.usePKCE = usePKCE;
+            }
+            return this;
+        }
+
         public OidcAdditionalConfiguration build(){
             return new OidcAdditionalConfiguration(
-                    this.singingAlg, this.publicKey, this.privateKey, this.thumbprint, this.thumbprint256);
+                    this.singingAlg, this.publicKey, this.privateKey, this.thumbprint, this.thumbprint256, this.usePKCE, this.idTokenSingingAlg);
         }
     }
 }

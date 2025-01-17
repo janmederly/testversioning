@@ -16,8 +16,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.evolveum.midpoint.gui.api.util.WebModelServiceUtils;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.panel.outlier.RoleAnalysisWidgetsPanel;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.panel.outlier.WidgetItemModel;
+
+import com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables.outlier.panel.AnomalyObjectDto;
+import com.evolveum.midpoint.task.api.Task;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
 
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -35,7 +41,6 @@ import com.evolveum.midpoint.gui.api.component.tabs.PanelTab;
 import com.evolveum.midpoint.gui.api.page.PageBase;
 import com.evolveum.midpoint.gui.impl.page.admin.AbstractObjectMainPanel;
 import com.evolveum.midpoint.gui.impl.page.admin.ObjectDetailsModels;
-import com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables.outlier.panel.AnomalyTableCategory;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables.outlier.panel.RoleAnalysisDetectedAnomalyTable;
 import com.evolveum.midpoint.web.application.PanelDisplay;
 import com.evolveum.midpoint.web.application.PanelInstance;
@@ -43,10 +48,6 @@ import com.evolveum.midpoint.web.application.PanelType;
 import com.evolveum.midpoint.web.component.RoleAnalysisTabbedPanel;
 import com.evolveum.midpoint.web.component.TabbedPanel;
 import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.ContainerPanelConfigurationType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.DetectedAnomalyResult;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisOutlierPartitionType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisOutlierType;
 
 @PanelType(name = "anomalyAccess")
 @PanelInstance(
@@ -55,7 +56,7 @@ import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisOutlierT
         display = @PanelDisplay(
                 label = "RoleAnalysisOutlierType.outlierPanel.access",
                 icon = "fa fa-warning",
-                order = 30
+                order = 20
         )
 )
 public class RoleAnalysisOutlierAnomalyPanel extends AbstractObjectMainPanel<RoleAnalysisOutlierType, ObjectDetailsModels<RoleAnalysisOutlierType>> {
@@ -128,31 +129,40 @@ public class RoleAnalysisOutlierAnomalyPanel extends AbstractObjectMainPanel<Rol
     protected List<ITab> createPartitionTabs(RoleAnalysisOutlierType outlier) {
         List<ITab> tabs = new ArrayList<>();
 
-        tabs.add(new PanelTab(getPageBase().createStringResource("RoleAnalysisOutlierAnomalyPanel.all.access.anomaly..tab.title"), new VisibleEnableBehaviour()) {
+        tabs.add(new PanelTab(getPageBase().createStringResource("RoleAnalysisOutlierAnomalyPanel.all.access.anomaly.tab.title"), new VisibleEnableBehaviour()) {
 
             @Serial private static final long serialVersionUID = 1L;
 
             @Override
             public WebMarkupContainer createPanel(String panelId) {
-                RoleAnalysisDetectedAnomalyTable detectedAnomalyTable = new RoleAnalysisDetectedAnomalyTable(panelId,
-                        outlier, null, AnomalyTableCategory.OUTLIER_ANOMALY);
+                AnomalyObjectDto dto = new AnomalyObjectDto(outlier, null, true);
+                RoleAnalysisDetectedAnomalyTable detectedAnomalyTable = new RoleAnalysisDetectedAnomalyTable(panelId, Model.of(dto));
                 detectedAnomalyTable.setOutputMarkupId(true);
                 return detectedAnomalyTable;
             }
         });
 
-        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlier.getOutlierPartitions();
+        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlier.getPartition();
 
+        Task task = getPageBase().createSimpleTask("resolveSessionName");
         for (RoleAnalysisOutlierPartitionType partition : outlierPartitions) {
-            String targetName = partition.getTargetSessionRef().getTargetName().toString();
-            tabs.add(new PanelTab(Model.of(targetName + " partition anomalies"), new VisibleEnableBehaviour()) {
+            ObjectReferenceType targetSessionRef = partition.getTargetSessionRef();
+            PolyStringType targetName = partition.getTargetSessionRef().getTargetName();
+            String partitionName;
+            if (targetName == null) {
+                partitionName = WebModelServiceUtils.resolveReferenceName(targetSessionRef, getPageBase(), task, task.getResult());
+            } else {
+                partitionName = targetName.toString();
+            }
+
+            tabs.add(new PanelTab(Model.of(partitionName + " partition anomalies"), new VisibleEnableBehaviour()) {
 
                 @Serial private static final long serialVersionUID = 1L;
 
                 @Override
                 public WebMarkupContainer createPanel(String panelId) {
-                    RoleAnalysisDetectedAnomalyTable detectedAnomalyTable = new RoleAnalysisDetectedAnomalyTable(panelId,
-                            outlier, partition, AnomalyTableCategory.PARTITION_ANOMALY);
+                    AnomalyObjectDto dto = new AnomalyObjectDto(outlier, partition, false);
+                    RoleAnalysisDetectedAnomalyTable detectedAnomalyTable = new RoleAnalysisDetectedAnomalyTable(panelId, Model.of(dto));
                     detectedAnomalyTable.setOutputMarkupId(true);
                     return detectedAnomalyTable;
                 }
@@ -168,10 +178,9 @@ public class RoleAnalysisOutlierAnomalyPanel extends AbstractObjectMainPanel<Rol
         container.add(components);
     }
 
-
     private @NotNull IModel<List<WidgetItemModel>> loadDetailsModel() {
         RoleAnalysisOutlierType outlier = getObjectDetailsModels().getObjectType();
-        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlier.getOutlierPartitions();
+        List<RoleAnalysisOutlierPartitionType> outlierPartitions = outlier.getPartition();
         Set<String> anomalies = new HashSet<>();
         for (RoleAnalysisOutlierPartitionType outlierPartition : outlierPartitions) {
             List<DetectedAnomalyResult> detectedAnomalyResult = outlierPartition.getDetectedAnomalyResult();
@@ -226,47 +235,47 @@ public class RoleAnalysisOutlierAnomalyPanel extends AbstractObjectMainPanel<Rol
                             }
                         };
                     }
-                },
-
-                new WidgetItemModel(createStringResource(""),
-                        Model.of("Sort")) {
-                    @Override
-                    public Component createValueComponent(String id) {
-                        Label label = new Label(id, "0 (todo)");
-                        label.add(AttributeAppender.append("class", " h4"));
-                        return label;
-                    }
-
-                    @Override
-                    public Component createDescriptionComponent(String id) {
-                        return new LabelWithHelpPanel(id, Model.of("Pending cert.")) {
-                            @Override
-                            protected IModel<String> getHelpModel() {
-                                return createStringResource("RoleAnalysisOutlierType.anomalyAverageConfidence.help");
-                            }
-                        };
-                    }
-                },
-
-                new WidgetItemModel(createStringResource(""),
-                        Model.of("Chart")) {
-                    @Override
-                    public Component createValueComponent(String id) {
-                        Label label = new Label(id, "0 (todo)");
-                        label.add(AttributeAppender.append("class", " h4"));
-                        return label;
-                    }
-
-                    @Override
-                    public Component createDescriptionComponent(String id) {
-                        return new LabelWithHelpPanel(id, Model.of("Closed cert.")) {
-                            @Override
-                            protected IModel<String> getHelpModel() {
-                                return createStringResource("RoleAnalysisOutlierType.anomalyAverageConfidence.help");
-                            }
-                        };
-                    }
                 }
+
+//                new WidgetItemModel(createStringResource(""),
+//                        Model.of("Sort")) {
+//                    @Override
+//                    public Component createValueComponent(String id) {
+//                        Label label = new Label(id, "0 (todo)");
+//                        label.add(AttributeAppender.append("class", " h4"));
+//                        return label;
+//                    }
+//
+//                    @Override
+//                    public Component createDescriptionComponent(String id) {
+//                        return new LabelWithHelpPanel(id, Model.of("Pending cert.")) {
+//                            @Override
+//                            protected IModel<String> getHelpModel() {
+//                                return createStringResource("RoleAnalysisOutlierType.anomalyAverageConfidence.help");
+//                            }
+//                        };
+//                    }
+//                },
+
+//                new WidgetItemModel(createStringResource(""),
+//                        Model.of("Chart")) {
+//                    @Override
+//                    public Component createValueComponent(String id) {
+//                        Label label = new Label(id, "0 (todo)");
+//                        label.add(AttributeAppender.append("class", " h4"));
+//                        return label;
+//                    }
+//
+//                    @Override
+//                    public Component createDescriptionComponent(String id) {
+//                        return new LabelWithHelpPanel(id, Model.of("Closed cert.")) {
+//                            @Override
+//                            protected IModel<String> getHelpModel() {
+//                                return createStringResource("RoleAnalysisOutlierType.anomalyAverageConfidence.help");
+//                            }
+//                        };
+//                    }
+//                }
         );
 
         return Model.ofList(detailsModel);

@@ -62,6 +62,8 @@ import com.evolveum.midpoint.util.logging.Trace;
 import com.evolveum.midpoint.util.logging.TraceManager;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
+import org.jetbrains.annotations.Nullable;
+
 import javax.xml.datatype.XMLGregorianCalendar;
 
 /**
@@ -74,7 +76,7 @@ public class AssociationValuesTripleComputation {
 
     private final boolean complexAssociation;
     @NotNull private final ShadowAssociationDefinition associationDefinition;
-    @NotNull private final AssociationOutboundMappingType outboundBean;
+    @NotNull private final AssociationConstructionExpressionEvaluatorType outboundBean;
     @NotNull private final LensProjectionContext projectionContext;
     @NotNull private final MappingEvaluationEnvironment env;
     @NotNull private final OperationResult result;
@@ -83,7 +85,7 @@ public class AssociationValuesTripleComputation {
 
     private AssociationValuesTripleComputation(
             @NotNull ShadowAssociationDefinition associationDefinition,
-            @NotNull AssociationOutboundMappingType outboundBean,
+            @NotNull AssociationConstructionExpressionEvaluatorType outboundBean,
             @NotNull LensProjectionContext projectionContext,
             @NotNull MappingEvaluationEnvironment env,
             @NotNull OperationResult result) {
@@ -99,7 +101,7 @@ public class AssociationValuesTripleComputation {
     /** Assumes the existence of the projection context and association definition with a bean. */
     public static PrismValueDeltaSetTriple<ShadowAssociationValue> compute(
             @NotNull ShadowAssociationDefinition associationDefinition,
-            @NotNull AssociationOutboundMappingType outboundBean,
+            @NotNull AssociationConstructionExpressionEvaluatorType outboundBean,
             @NotNull LensProjectionContext projectionContext,
             @NotNull XMLGregorianCalendar now,
             @NotNull Task task,
@@ -118,34 +120,30 @@ public class AssociationValuesTripleComputation {
     private PrismValueDeltaSetTriple<ShadowAssociationValue> compute()
             throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
             ConfigurationException, ObjectNotFoundException {
-        if (outboundBean.getExpression() != null) {
-            throw new UnsupportedOperationException("This should be treated elsewhere"); // FIXME document or implement
-        } else {
-            try {
-                // We need to gather all relevant "magic assignments" here.
-                var lensContext = projectionContext.getLensContext();
-                lensContext.getEvaluatedAssignmentTriple().foreach(
-                        (eaSet, ea) ->
-                                ea.getRoles().foreach(
-                                        (targetSet, target) -> {
-                                            try {
-                                                if (target.getAssignmentPath().last().isMatchingOrder()) {
-                                                    var mode = PlusMinusZero.compute(eaSet, targetSet);
-                                                    if (mode != null) {
-                                                        // TODO consider validity as well
-                                                        processAssignmentTarget(mode, target);
-                                                    }
+        try {
+            // We need to gather all relevant "magic assignments" here.
+            var lensContext = projectionContext.getLensContext();
+            lensContext.getEvaluatedAssignmentTriple().foreach(
+                    (eaSet, ea) ->
+                            ea.getRoles().foreach(
+                                    (targetSet, target) -> {
+                                        try {
+                                            if (target.getAssignmentPath().last().isMatchingOrder()) {
+                                                var mode = PlusMinusZero.compute(eaSet, targetSet);
+                                                if (mode != null) {
+                                                    // TODO consider validity as well
+                                                    processAssignmentTarget(mode, target);
                                                 }
-                                            } catch (CommonException e) {
-                                                throw new LocalTunnelException(e);
                                             }
+                                        } catch (CommonException e) {
+                                            throw new LocalTunnelException(e);
                                         }
-                                )
-                );
-            } catch (LocalTunnelException e) {
-                e.unwrapAndRethrow();
-                throw new NotHereAssertionError();
-            }
+                                    }
+                            )
+            );
+        } catch (LocalTunnelException e) {
+            e.unwrapAndRethrow();
+            throw new NotHereAssertionError();
         }
         return triple;
     }
@@ -162,7 +160,9 @@ public class AssociationValuesTripleComputation {
         }
         var tripleForTarget = new ValueComputation(target).compute(mode);
         LOGGER.trace(" -> resulting triple for this target: {}", tripleForTarget);
-        triple.merge(tripleForTarget);
+        if (tripleForTarget != null) {
+            triple.merge(tripleForTarget);
+        }
     }
 
     private AssignmentTargetEligibility getEligibility(EvaluatedAssignmentTargetImpl target)
@@ -230,10 +230,9 @@ public class AssociationValuesTripleComputation {
                     "No path variables for %s", target);
         }
 
-        private PrismValueDeltaSetTriple<ShadowAssociationValue> compute(@NotNull PlusMinusZero mode)
+        private @Nullable PrismValueDeltaSetTriple<ShadowAssociationValue> compute(@NotNull PlusMinusZero mode)
                 throws SchemaException, ExpressionEvaluationException, SecurityViolationException, CommunicationException,
                 ConfigurationException, ObjectNotFoundException {
-            var resultingTriple = PrismContext.get().deltaFactory().<ShadowAssociationValue>createPrismValueDeltaSetTriple();
             for (var attrDefBean : outboundBean.getAttribute()) {
                 evaluateAttribute(attrDefBean, false);
             }
@@ -243,19 +242,24 @@ public class AssociationValuesTripleComputation {
             var associationDataObject = consolidate();
             ShadowAssociationValue associationValue;
             if (complexAssociation) {
-                associationValue =
-                        ShadowAssociationValue.fromAssociationDataObject(
-                                AbstractShadow.of(associationDataObject),
-                                associationDefinition);
+                associationValue = ShadowAssociationValue.fromAssociationDataObject(
+                        AbstractShadow.of(associationDataObject),
+                        associationDefinition);
+                if (associationValue.isEmpty()) {
+                    LOGGER.trace("Empty complex association value -> no output");
+                    return null;
+                }
             } else {
-                associationValue = ShadowAssociationValue.empty(associationDefinition);
                 var referenceAttributes = ShadowUtil.getAttributesContainer(associationDataObject).getReferenceAttributes();
                 if (referenceAttributes.isEmpty()) {
-                    return resultingTriple;
+                    LOGGER.trace("No reference attribute in the simple association value -> no output");
+                    return null;
                 }
                 var referenceAttribute = MiscUtil.extractSingletonRequired(referenceAttributes);
+                associationValue = ShadowAssociationValue.empty(associationDefinition);
                 associationValue.getOrCreateObjectsContainer().addAttribute(referenceAttribute.clone());
             }
+            var resultingTriple = PrismContext.get().deltaFactory().<ShadowAssociationValue>createPrismValueDeltaSetTriple();
             resultingTriple.addAllToSet(mode, List.of(associationValue));
             return resultingTriple;
         }

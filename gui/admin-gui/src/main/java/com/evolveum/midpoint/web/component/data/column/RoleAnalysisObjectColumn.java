@@ -7,14 +7,11 @@
 
 package com.evolveum.midpoint.web.component.data.column;
 
-import static com.evolveum.midpoint.common.mining.utils.RoleAnalysisAttributeDefUtils.getObjectNameDef;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableCellFillResolver.updateFrequencyBased;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableTools.createCompositedObjectIcon;
 
 import java.io.Serial;
 import java.util.List;
-
-import com.evolveum.midpoint.web.component.data.RoleAnalysisObjectDto;
 
 import com.google.common.collect.ListMultimap;
 import org.apache.wicket.AttributeModifier;
@@ -24,10 +21,14 @@ import org.apache.wicket.extensions.markup.html.repeater.data.grid.ICellPopulato
 import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.Model;
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import com.evolveum.midpoint.common.mining.objects.analysis.RoleAnalysisAttributeDef;
 import com.evolveum.midpoint.common.mining.objects.chunk.DisplayValueOption;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningBaseTypeChunk;
-import com.evolveum.midpoint.common.mining.objects.detection.DetectionOption;
+import com.evolveum.midpoint.common.mining.objects.detection.PatternDetectionOption;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisChunkMode;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisOperationMode;
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisSortMode;
@@ -38,12 +39,15 @@ import com.evolveum.midpoint.gui.impl.component.icon.IconCssStyle;
 import com.evolveum.midpoint.gui.impl.component.icon.LayeredIconCssStyle;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables.operation.OutlierPatternResolver;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables.operation.SimpleHeatPattern;
+import com.evolveum.midpoint.prism.PrismContext;
+import com.evolveum.midpoint.prism.PrismObjectDefinition;
+import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.web.component.AjaxCompositedIconSubmitButton;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
-
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.evolveum.midpoint.web.component.data.RoleAnalysisObjectDto;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.FocusType;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisProcessModeType;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleType;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.UserType;
 
 public abstract class RoleAnalysisObjectColumn<A extends MiningBaseTypeChunk> extends RoleAnalysisMatrixColumn<A> {
 
@@ -100,8 +104,9 @@ public abstract class RoleAnalysisObjectColumn<A extends MiningBaseTypeChunk> ex
                     options.setChunkMode(RoleAnalysisChunkMode.EXPAND);
                 } else {
                     options.setChunkMode(RoleAnalysisChunkMode.COMPRESS);
-                    options.setUserAnalysisUserDef(getObjectNameDef());
-                    options.setRoleAnalysisRoleDef(getObjectNameDef());
+
+                    options.setUserAnalysisUserDef(createNameAnalysisAttribute(UserType.class));
+                    options.setRoleAnalysisRoleDef(createNameAnalysisAttribute(RoleType.class));
                 }
 
                 resetTable(target);
@@ -119,6 +124,12 @@ public abstract class RoleAnalysisObjectColumn<A extends MiningBaseTypeChunk> ex
                 "  writing-mode: vertical-lr;  -webkit-transform: rotate(90deg);"));
 
         return compressButton;
+    }
+
+    private RoleAnalysisAttributeDef createNameAnalysisAttribute(Class<? extends FocusType> type) {
+        ItemPath path = ItemPath.create(UserType.F_NAME);
+        PrismObjectDefinition<? extends FocusType> objectDef = PrismContext.get().getSchemaRegistry().findObjectDefinitionByCompileTimeClass(type);
+        return new RoleAnalysisAttributeDef(path, objectDef.findItemDefinition(path), type);
     }
 
     @Contract("_ -> new")
@@ -161,8 +172,9 @@ public abstract class RoleAnalysisObjectColumn<A extends MiningBaseTypeChunk> ex
         return null;
     }
 
+    //Experimental method
     private String computeOutlierExperimentalInfo(@NotNull IModel<A> rowModel, String title) {
-        DetectionOption detectionOption = new DetectionOption(
+        PatternDetectionOption detectionOption = new PatternDetectionOption(
                 10, 100, 2, 2);
         //This is overhead operation. Just for testing.
         ListMultimap<String, SimpleHeatPattern> totalRelationOfPatternsForChunk = new OutlierPatternResolver()

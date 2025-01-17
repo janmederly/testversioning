@@ -1,5 +1,6 @@
 package com.evolveum.midpoint.model.impl.mining;
 
+import com.evolveum.midpoint.common.mining.objects.chunk.MiningBaseTypeChunk;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningOperationChunk;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningRoleTypeChunk;
 import com.evolveum.midpoint.common.mining.objects.chunk.MiningUserTypeChunk;
@@ -11,13 +12,16 @@ import com.evolveum.midpoint.model.api.ActivitySubmissionOptions;
 import com.evolveum.midpoint.model.api.ModelInteractionService;
 import com.evolveum.midpoint.model.api.ModelService;
 import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
-import com.evolveum.midpoint.prism.PrismContainer;
-import com.evolveum.midpoint.prism.PrismContext;
-import com.evolveum.midpoint.prism.PrismObject;
-import com.evolveum.midpoint.prism.PrismValue;
+import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.prism.delta.ItemDelta;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
+import com.evolveum.midpoint.prism.path.ItemPath;
+import com.evolveum.midpoint.prism.query.ObjectFilter;
+import com.evolveum.midpoint.prism.query.ObjectQuery;
+import com.evolveum.midpoint.prism.query.builder.S_FilterExit;
 import com.evolveum.midpoint.repo.api.RepositoryService;
+import com.evolveum.midpoint.schema.GetOperationOptions;
+import com.evolveum.midpoint.schema.SelectorOptions;
 import com.evolveum.midpoint.schema.constants.ObjectTypes;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.MiscSchemaUtil;
@@ -33,9 +37,13 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static com.evolveum.midpoint.common.mining.utils.ExtractPatternUtils.transformDefaultPattern;
 import static com.evolveum.midpoint.common.mining.utils.RoleAnalysisUtils.getRolesOidAssignment;
 
+import static com.evolveum.midpoint.prism.PrismConstants.Q_ANY;
+import static com.evolveum.midpoint.prism.PrismConstants.T_SELF;
 import static com.evolveum.midpoint.schema.util.ObjectTypeUtil.createAssignmentTo;
+
 import static java.util.Collections.singleton;
 
 public class RoleAnalysisServiceUtils {
@@ -70,13 +78,41 @@ public class RoleAnalysisServiceUtils {
         return recomputeSessionStatistic;
     }
 
-    protected static void resolveUserModeChunkPattern(
+    //TODO check it and think about better impl solution
+    protected static void resolveTablePatternChunk(
+            RoleAnalysisProcessModeType processMode,
             MiningOperationChunk basicChunk,
             @NotNull List<MiningRoleTypeChunk> miningRoleTypeChunks,
             List<List<String>> detectedPatternsRoles,
             List<String> candidateRolesIds,
             List<MiningUserTypeChunk> miningUserTypeChunks,
             List<List<String>> detectedPatternsUsers) {
+
+        if (processMode == RoleAnalysisProcessModeType.ROLE) {
+            resolveRoleModeChunkPattern(basicChunk,
+                    miningRoleTypeChunks,
+                    detectedPatternsRoles,
+                    candidateRolesIds,
+                    miningUserTypeChunks,
+                    detectedPatternsUsers);
+        } else {
+            resolveUserModeChunkPattern(basicChunk,
+                    miningRoleTypeChunks,
+                    detectedPatternsRoles,
+                    candidateRolesIds,
+                    miningUserTypeChunks,
+                    detectedPatternsUsers);
+        }
+    }
+
+    private static void resolveUserModeChunkPattern(
+            MiningOperationChunk basicChunk,
+            @NotNull List<MiningRoleTypeChunk> miningRoleTypeChunks,
+            List<List<String>> detectedPatternsRoles,
+            List<String> candidateRolesIds,
+            List<MiningUserTypeChunk> miningUserTypeChunks,
+            List<List<String>> detectedPatternsUsers) {
+
         for (MiningRoleTypeChunk role : miningRoleTypeChunks) {
             FrequencyItem frequencyItem = role.getFrequencyItem();
             double frequency = frequencyItem.getFrequency();
@@ -84,17 +120,7 @@ public class RoleAnalysisServiceUtils {
             for (int i = 0; i < detectedPatternsRoles.size(); i++) {
                 List<String> detectedPatternsRole = detectedPatternsRoles.get(i);
                 List<String> chunkRoles = role.getRoles();
-                if (new HashSet<>(detectedPatternsRole).containsAll(chunkRoles)) {
-                    RoleAnalysisObjectStatus objectStatus = role.getObjectStatus();
-                    objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
-                    objectStatus.addContainerId(candidateRolesIds.get(i));
-                    detectedPatternsRole.removeAll(chunkRoles);
-                } else if (basicChunk.getMinFrequency() > frequency && frequency < basicChunk.getMaxFrequency()
-                        && !role.getStatus().isInclude()) {
-                    role.setStatus(RoleAnalysisOperationMode.DISABLE);
-                } else if (!role.getStatus().isInclude()) {
-                    role.setStatus(RoleAnalysisOperationMode.EXCLUDE);
-                }
+                resolvePatternChunk(basicChunk, candidateRolesIds, role, detectedPatternsRole, chunkRoles, i, frequency);
             }
         }
 
@@ -102,19 +128,12 @@ public class RoleAnalysisServiceUtils {
             for (int i = 0; i < detectedPatternsUsers.size(); i++) {
                 List<String> detectedPatternsUser = detectedPatternsUsers.get(i);
                 List<String> chunkUsers = user.getUsers();
-                if (new HashSet<>(detectedPatternsUser).containsAll(chunkUsers)) {
-                    RoleAnalysisObjectStatus objectStatus = user.getObjectStatus();
-                    objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
-                    objectStatus.addContainerId(candidateRolesIds.get(i));
-                    detectedPatternsUser.removeAll(chunkUsers);
-                } else if (!user.getStatus().isInclude()) {
-                    user.setStatus(RoleAnalysisOperationMode.EXCLUDE);
-                }
+                resolveMemberPatternChunk(candidateRolesIds, user, detectedPatternsUser, chunkUsers, i);
             }
         }
     }
 
-    protected static void resolveRoleModeChunkPattern(
+    private static void resolveRoleModeChunkPattern(
             MiningOperationChunk basicChunk,
             @NotNull List<MiningRoleTypeChunk> miningRoleTypeChunks,
             List<List<String>> detectedPatternsRoles,
@@ -128,17 +147,7 @@ public class RoleAnalysisServiceUtils {
             for (int i = 0; i < detectedPatternsUsers.size(); i++) {
                 List<String> detectedPatternsUser = detectedPatternsUsers.get(i);
                 List<String> chunkUsers = user.getUsers();
-                if (new HashSet<>(detectedPatternsUser).containsAll(chunkUsers)) {
-                    RoleAnalysisObjectStatus objectStatus = user.getObjectStatus();
-                    objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
-                    objectStatus.addContainerId(candidateRolesIds.get(i));
-                    detectedPatternsUser.removeAll(chunkUsers);
-                } else if (basicChunk.getMinFrequency() > frequency && frequency < basicChunk.getMaxFrequency()
-                        && !user.getStatus().isInclude()) {
-                    user.setStatus(RoleAnalysisOperationMode.DISABLE);
-                } else if (!user.getStatus().isInclude()) {
-                    user.setStatus(RoleAnalysisOperationMode.EXCLUDE);
-                }
+                resolvePatternChunk(basicChunk, candidateRolesIds, user, detectedPatternsUser, chunkUsers, i, frequency);
             }
         }
 
@@ -146,15 +155,44 @@ public class RoleAnalysisServiceUtils {
             for (int i = 0; i < detectedPatternsRoles.size(); i++) {
                 List<String> detectedPatternsRole = detectedPatternsRoles.get(i);
                 List<String> chunkRoles = role.getRoles();
-                if (new HashSet<>(detectedPatternsRole).containsAll(chunkRoles)) {
-                    RoleAnalysisObjectStatus objectStatus = role.getObjectStatus();
-                    objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
-                    objectStatus.addContainerId(candidateRolesIds.get(i));
-                    detectedPatternsRole.removeAll(chunkRoles);
-                } else if (!role.getStatus().isInclude()) {
-                    role.setStatus(RoleAnalysisOperationMode.EXCLUDE);
-                }
+                resolveMemberPatternChunk(candidateRolesIds, role, detectedPatternsRole, chunkRoles, i);
             }
+        }
+    }
+
+    private static void resolveMemberPatternChunk(
+            List<String> candidateRolesIds,
+            MiningBaseTypeChunk memberChunk,
+            List<String> detectedPatternsMembers,
+            List<String> chunkMembers,
+            int i) {
+        if (new HashSet<>(detectedPatternsMembers).containsAll(chunkMembers)) {
+            RoleAnalysisObjectStatus objectStatus = memberChunk.getObjectStatus();
+            objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
+            objectStatus.addContainerId(candidateRolesIds.get(i));
+            detectedPatternsMembers.removeAll(chunkMembers);
+        } else if (!memberChunk.getStatus().isInclude()) {
+            memberChunk.setStatus(RoleAnalysisOperationMode.EXCLUDE);
+        }
+    }
+
+    private static void resolvePatternChunk(MiningOperationChunk basicChunk,
+            List<String> candidateRolesIds,
+            MiningBaseTypeChunk chunk,
+            List<String> detectedPatternsMembers,
+            List<String> chunkMembers,
+            int i,
+            double frequency) {
+        if (new HashSet<>(detectedPatternsMembers).containsAll(chunkMembers)) {
+            RoleAnalysisObjectStatus objectStatus = chunk.getObjectStatus();
+            objectStatus.setRoleAnalysisOperationMode(RoleAnalysisOperationMode.INCLUDE);
+            objectStatus.addContainerId(candidateRolesIds.get(i));
+            detectedPatternsMembers.removeAll(chunkMembers);
+        } else if (basicChunk.getMinFrequency() > frequency && frequency < basicChunk.getMaxFrequency()
+                && !chunk.getStatus().isInclude()) {
+            chunk.setStatus(RoleAnalysisOperationMode.DISABLE);
+        } else if (!chunk.getStatus().isInclude()) {
+            chunk.setStatus(RoleAnalysisOperationMode.EXCLUDE);
         }
     }
 
@@ -264,9 +302,9 @@ public class RoleAnalysisServiceUtils {
             modelService.executeChanges(deltas, null, task, result);
 
         } catch (SchemaException | ObjectAlreadyExistsException | ObjectNotFoundException |
-                 ExpressionEvaluationException |
-                 CommunicationException | ConfigurationException | PolicyViolationException |
-                 SecurityViolationException e) {
+                ExpressionEvaluationException |
+                CommunicationException | ConfigurationException | PolicyViolationException |
+                SecurityViolationException e) {
             logger.error("Couldn't update lifecycle state of object RoleType {}", roleObject, e);
         }
     }
@@ -315,6 +353,11 @@ public class RoleAnalysisServiceUtils {
                     .item(RoleAnalysisClusterType.F_DETECTED_PATTERN).replace(Collections.emptyList())
                     .asItemDelta());
 
+            modifications.add(PrismContext.get().deltaFor(RoleAnalysisClusterType.class)
+                    .item(RoleAnalysisClusterType.F_CLUSTER_STATISTICS, AnalysisClusterStatisticType.F_DETECTED_REDUCTION_METRIC)
+                    .replace(0.0)
+                    .asItemDelta());
+
             repositoryService.modifyObject(RoleAnalysisClusterType.class, cluster.getOid(), modifications, result);
         } catch (ObjectNotFoundException | SchemaException | ObjectAlreadyExistsException e) {
             logger.error("Couldn't execute migration recompute RoleAnalysisClusterDetectionOptions {}", cluster.getOid(), e);
@@ -353,7 +396,7 @@ public class RoleAnalysisServiceUtils {
     }
 
     @Nullable
-    protected static DetectedPattern findPatternWithBestConfidence(@NotNull List<DetectedPattern> detectedPatterns) {
+    public static DetectedPattern findPatternWithBestConfidence(@NotNull List<DetectedPattern> detectedPatterns) {
         double maxOverallConfidence = 0;
         DetectedPattern topDetectedPattern = null;
         for (DetectedPattern detectedPattern : detectedPatterns) {
@@ -405,7 +448,7 @@ public class RoleAnalysisServiceUtils {
         return assignmentPaths;
     }
 
-    protected static  <PV extends PrismValue> List<ProvenanceMetadataType> collectProvenanceMetadata(PV rowValue) {
+    protected static <PV extends PrismValue> List<ProvenanceMetadataType> collectProvenanceMetadata(PV rowValue) {
         List<ValueMetadataType> valueMetadataValues = collectValueMetadata(rowValue);
         return valueMetadataValues.stream()
                 .map(ValueMetadataType::getProvenance)
@@ -413,8 +456,334 @@ public class RoleAnalysisServiceUtils {
 
     }
 
-    protected static  <PV extends PrismValue> @NotNull List<ValueMetadataType> collectValueMetadata(@NotNull PV rowValue) {
+    protected static <PV extends PrismValue> @NotNull List<ValueMetadataType> collectValueMetadata(@NotNull PV rowValue) {
         PrismContainer<ValueMetadataType> valueMetadataContainer = rowValue.getValueMetadataAsContainer();
         return (List<ValueMetadataType>) valueMetadataContainer.getRealValues();
     }
+
+    /**
+     * Builds an ObjectQuery for assignment search based on the provided user, role, and assignment filters.
+     *
+     * @param userObjectFiler An optional filter to apply to the user objects.
+     * @param roleObjectFilter An optional filter to apply to the role objects.
+     * @param assignmentFilter An optional filter to apply to the assignment objects.
+     * @return The constructed ObjectQuery for assignment search.
+     */
+    public static ObjectQuery buildAssignmentSearchObjectQuery(
+            @Nullable ObjectFilter userObjectFiler,
+            @Nullable ObjectFilter roleObjectFilter,
+            @Nullable ObjectFilter assignmentFilter) {
+        S_FilterExit filter;
+
+        if (userObjectFiler != null) {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class, AssignmentHolderType.F_ASSIGNMENT)
+                    .block()
+                    .filter(userObjectFiler)
+                    .endBlock();
+        } else {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class);
+        }
+
+        if (roleObjectFilter != null) {
+            filter = filter
+                    .and()
+                    .exists(AssignmentType.F_TARGET_REF, PrismConstants.T_OBJECT_REFERENCE)
+                    .type(RoleType.class)
+                    .block().filter(roleObjectFilter)
+                    .endBlock();
+        } else {
+            filter = filter
+                    .and()
+                    .block()
+                    .ref(AssignmentType.F_TARGET_REF)
+                    .type(RoleType.class)
+                    .endBlock();
+        }
+
+        if (assignmentFilter != null) {
+            filter = filter
+                    .and()
+                    .filter(assignmentFilter);
+        }
+
+        return filter.build();
+    }
+
+    /**
+     * Builds an ObjectQuery for membership search based on the provided user and role filters.
+     *
+     * @param userObjectFiler An optional filter to apply to the user objects.
+     * @param roleObjectFilter An optional filter to apply to the role objects.
+     * @return The constructed ObjectQuery for membership search.
+     */
+    public static ObjectQuery buildMembershipSearchObjectQuery(@Nullable ObjectFilter userObjectFiler, @Nullable ObjectFilter roleObjectFilter) {
+        S_FilterExit filter;
+
+        if (userObjectFiler != null) {
+            filter = PrismContext.get().queryForReferenceOwnedBy(UserType.class, AssignmentHolderType.F_ROLE_MEMBERSHIP_REF)
+                    .block()
+                    .filter(userObjectFiler)
+                    .endBlock();
+        } else {
+            filter = PrismContext.get().queryForReferenceOwnedBy(UserType.class, AssignmentHolderType.F_ROLE_MEMBERSHIP_REF);
+        }
+
+        if (roleObjectFilter != null) {
+            filter = filter
+                    .and()
+                    .ref(ItemPath.SELF_PATH, RoleType.COMPLEX_TYPE, null)
+                    .block()
+                    .filter(roleObjectFilter)
+                    .endBlock();
+
+        } else {
+            filter = filter
+                    .and()
+                    .item(T_SELF)
+                    .ref(null, RoleType.COMPLEX_TYPE, Q_ANY);
+        }
+
+        return filter.build();
+    }
+
+    /**
+     * Builds an ObjectQuery for assignment role member search based on the provided role, user, and assignment filters.
+     *
+     * @param roles A set of role OIDs to be included in the search.
+     * @param userObjectFiler An optional filter to apply to the user objects.
+     * @param roleObjectFilter An optional filter to apply to the role objects.
+     * @param assignmentFilter An optional filter to apply to the assignment objects.
+     * @return The constructed ObjectQuery for assignment role member search.
+     */
+    public static ObjectQuery buildAssignmentRoleMemberSearchObjectQuery(
+            @NotNull Set<String> roles,
+            @Nullable ObjectFilter userObjectFiler,
+            @Nullable ObjectFilter roleObjectFilter,
+            @Nullable ObjectFilter assignmentFilter) {
+        S_FilterExit filter;
+
+        if (userObjectFiler != null) {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class, AssignmentHolderType.F_ASSIGNMENT)
+                    .block()
+                    .filter(userObjectFiler)
+                    .endBlock();
+        } else {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class);
+        }
+
+        filter = filter
+                .and()
+                .item(AssignmentType.F_TARGET_REF)
+                .ref(roles.toArray(new String[0]));
+
+        if (roleObjectFilter != null) {
+            filter = filter
+                    .and()
+                    .exists(AssignmentType.F_TARGET_REF, PrismConstants.T_OBJECT_REFERENCE)
+                    .type(RoleType.class)
+                    .block().filter(roleObjectFilter)
+                    .endBlock();
+        } else {
+            filter = filter
+                    .and()
+                    .block()
+                    .ref(AssignmentType.F_TARGET_REF)
+                    .type(RoleType.class)
+                    .endBlock();
+        }
+
+        if (assignmentFilter != null) {
+            filter = filter
+                    .and()
+                    .filter(assignmentFilter);
+        }
+
+        return filter.build();
+    }
+
+    /**
+     * Builds an ObjectQuery for assignment user access search based on the provided user, role, and assignment filters.
+     *
+     * @param users A set of user OIDs to be included in the search.
+     * @param userObjectFiler An optional filter to apply to the user objects.
+     * @param roleObjectFilter An optional filter to apply to the role objects.
+     * @param assignmentFilter An optional filter to apply to the assignment objects.
+     * @return The constructed ObjectQuery for assignment user access search.
+     */
+    public static ObjectQuery buildAssignmentUserAccessSearchObjectQuery(
+            @NotNull Set<String> users,
+            @Nullable ObjectFilter userObjectFiler,
+            @Nullable ObjectFilter roleObjectFilter,
+            @Nullable ObjectFilter assignmentFilter) {
+        S_FilterExit filter;
+        if (userObjectFiler != null) {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class, AssignmentHolderType.F_ASSIGNMENT)
+                    .block()
+                    .id(users.toArray(new String[0]))
+                    .and()
+                    .filter(userObjectFiler)
+                    .endBlock();
+        } else {
+            filter = PrismContext.get().queryFor(AssignmentType.class)
+                    .ownedBy(UserType.class).block().id(users.toArray(new String[0])).endBlock();
+        }
+
+        if (roleObjectFilter != null) {
+            filter = filter
+                    .and()
+                    .exists(AssignmentType.F_TARGET_REF, PrismConstants.T_OBJECT_REFERENCE)
+                    .type(RoleType.class)
+                    .block().filter(roleObjectFilter)
+                    .endBlock();
+        } else {
+            filter = filter
+                    .and()
+                    .block()
+                    .ref(AssignmentType.F_TARGET_REF)
+                    .type(RoleType.class)
+                    .endBlock();
+        }
+
+        if (assignmentFilter != null) {
+            filter = filter
+                    .and()
+                    .filter(assignmentFilter);
+        }
+
+        return filter.build();
+    }
+
+    public static void loadDetectedPattern(
+            @NotNull RepositoryService repositoryService,
+            @NotNull RoleAnalysisDetectionPatternType pattern, @NotNull Map<String, RoleAnalysisClusterType> mappedClusters, @Nullable Collection<SelectorOptions<GetOperationOptions>> options, @NotNull List<DetectedPattern> detectedPatterns, @NotNull OperationResult result) {
+        PrismContainerValue<?> prismContainerValue = pattern.asPrismContainerValue();
+        Map<String, Object> userData = prismContainerValue.getUserData();
+        @SuppressWarnings("unchecked") List<Object> containerIdPath = (List<Object>) userData.get("containerIdPath");
+        String patternClusterOid = containerIdPath.get(0).toString();
+        Long patternId = (Long) containerIdPath.get(1);
+
+        if (!mappedClusters.containsKey(patternClusterOid)) {
+            RoleAnalysisClusterType cluster;
+            try {
+                cluster = repositoryService.getObject(RoleAnalysisClusterType.class, patternClusterOid, options, result)
+                        .asObjectable();
+            } catch (ObjectNotFoundException | SchemaException e) {
+                throw new SystemException("Couldn't get cluster object with oid: " + patternClusterOid, e);
+            }
+            mappedClusters.put(patternClusterOid, cluster);
+        }
+
+        RoleAnalysisClusterType cluster = mappedClusters.get(patternClusterOid);
+
+        ObjectReferenceType clusterRef = new ObjectReferenceType();
+        clusterRef.setOid(cluster.getOid());
+        clusterRef.setType(RoleAnalysisClusterType.COMPLEX_TYPE);
+        clusterRef.setTargetName(cluster.getName());
+
+        ObjectReferenceType roleAnalysisSessionRef = cluster.getRoleAnalysisSessionRef();
+        ObjectReferenceType sessionRef = new ObjectReferenceType();
+        sessionRef.setOid(roleAnalysisSessionRef.getOid());
+        sessionRef.setType(RoleAnalysisSessionType.COMPLEX_TYPE);
+        sessionRef.setTargetName(roleAnalysisSessionRef.getTargetName());
+
+        DetectedPattern detectedPattern = transformDefaultPattern(pattern, clusterRef, sessionRef, patternId);
+        detectedPatterns.add(detectedPattern);
+    }
+
+    public static void prepareOutlierPartitionMap(
+            @NotNull RoleAnalysisService roleAnalysisService,
+            @NotNull Task task,
+            @NotNull OperationResult result,
+            @NotNull RoleAnalysisOutlierPartitionType partition,
+            Map<RoleAnalysisOutlierPartitionType, RoleAnalysisOutlierType> partitionOutlierMap,
+            @NotNull Trace logger) {
+        PrismContainerValue<?> prismContainerValue = partition.asPrismContainerValue();
+        if (prismContainerValue == null) {
+            logger.error("Couldn't get prism container value during outlier partition search");
+            return;
+        }
+
+        Map<String, Object> userData = prismContainerValue.getUserData();
+        @SuppressWarnings("unchecked") List<Object> containerIdPath = (List<Object>) userData.get("containerIdPath");
+        String patternClusterOid = containerIdPath.get(0).toString();
+
+        PrismObject<RoleAnalysisOutlierType> outlierPrisObject = roleAnalysisService.getObject(
+                RoleAnalysisOutlierType.class, patternClusterOid, task, result);
+
+        if (outlierPrisObject == null) {
+            logger.error("Couldn't get outlier object during outlier partition search");
+            return;
+        }
+
+        partitionOutlierMap.put(partition, outlierPrisObject.asObjectable());
+    }
+
+    protected static void loadOutlierDeleteProcessModifications(
+            Map<String, ObjectDelta<RoleAnalysisOutlierType>> modifyDeltas,
+            @NotNull RoleAnalysisClusterType cluster,
+            List<RoleAnalysisOutlierPartitionType> outlierPartitions,
+            RoleAnalysisOutlierType outlierObject) throws SchemaException, ObjectNotFoundException {
+
+        ObjectDelta<RoleAnalysisOutlierType> deleteDelta;
+
+        if (outlierPartitions == null || (outlierPartitions.size() == 1
+                && outlierPartitions.get(0).getClusterRef().getOid().equals(cluster.getOid()))) {
+            deleteDelta = PrismContext.get().deltaFactory().object()
+                    .createDeleteDelta(RoleAnalysisOutlierType.class, outlierObject.getOid());
+            modifyDeltas.put(outlierObject.getOid(), deleteDelta);
+        } else {
+            RoleAnalysisOutlierPartitionType partitionToDelete = null;
+
+            double overallConfidence = 0;
+            double anomalyObjectsConfidence = 0;
+
+            for (RoleAnalysisOutlierPartitionType outlierPartition : outlierPartitions) {
+                if (outlierPartition.getClusterRef().getOid().equals(cluster.getOid())) {
+                    partitionToDelete = outlierPartition;
+                } else {
+                    overallConfidence += outlierPartition.getPartitionAnalysis().getOverallConfidence();
+                    anomalyObjectsConfidence += outlierPartition.getPartitionAnalysis().getAnomalyObjectsConfidence();
+                }
+            }
+
+            int partitionCount = outlierPartitions.size();
+            if (partitionToDelete != null) {
+                partitionCount--;
+            }
+
+            overallConfidence = overallConfidence / partitionCount;
+            anomalyObjectsConfidence = anomalyObjectsConfidence / partitionCount;
+
+            if (partitionToDelete == null) {
+                throw new ObjectNotFoundException("Couldn't find partition to delete");
+            }
+
+            List<ItemDelta<?, ?>> modifications = new ArrayList<>();
+            var finalPartitionToDelete = new RoleAnalysisOutlierPartitionType()
+                    .id(partitionToDelete.getId());
+            modifications.add(PrismContext.get().deltaFor(RoleAnalysisOutlierType.class)
+                    .item(RoleAnalysisOutlierType.F_PARTITION).delete(
+                            finalPartitionToDelete)
+                    .asItemDelta());
+
+            modifications.add(PrismContext.get().deltaFor(RoleAnalysisOutlierType.class)
+                    .item(RoleAnalysisOutlierType.F_OVERALL_CONFIDENCE)
+                    .replace(overallConfidence).asItemDelta());
+
+            modifications.add(PrismContext.get().deltaFor(RoleAnalysisOutlierType.class)
+                    .item(RoleAnalysisOutlierType.F_ANOMALY_OBJECTS_CONFIDENCE)
+                    .replace(anomalyObjectsConfidence).asItemDelta());
+
+            deleteDelta = PrismContext.get().deltaFactory().object().createModifyDelta(
+                    outlierObject.getOid(), modifications, RoleAnalysisOutlierType.class);
+            modifyDeltas.put(outlierObject.getOid(), deleteDelta);
+        }
+
+    }
+
 }

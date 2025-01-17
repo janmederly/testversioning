@@ -181,6 +181,14 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     protected static final String CONNECTOR_DUMMY_VERSION = "2.0";
     protected static final String CONNECTOR_DUMMY_NAMESPACE = "http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.icf.dummy/com.evolveum.icf.dummy.connector.DummyConnector";
 
+    protected static final ItemName DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME =
+            ItemName.from(CONNECTOR_DUMMY_NAMESPACE, "alwaysRequireUpdateOfAttribute");
+    protected static final ItemPath DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_PATH =
+            ItemPath.create(
+                    ResourceType.F_CONNECTOR_CONFIGURATION,
+                    SchemaTestConstants.ICFC_CONFIGURATION_PROPERTIES,
+                    DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME);
+
     protected static final ItemPath ACTIVATION_ADMINISTRATIVE_STATUS_PATH = SchemaConstants.PATH_ACTIVATION_ADMINISTRATIVE_STATUS;
     protected static final ItemPath ACTIVATION_VALID_FROM_PATH = SchemaConstants.PATH_ACTIVATION_VALID_FROM;
     protected static final ItemPath ACTIVATION_VALID_TO_PATH = SchemaConstants.PATH_ACTIVATION_VALID_TO;
@@ -209,10 +217,6 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     @Autowired protected ActivityBasedTaskHandler activityBasedTaskHandler;
     @Autowired protected ArchetypeManager archetypeManager;
     @Autowired protected RoleAnalysisService roleAnalysisService;
-
-    @Autowired
-    @Qualifier("cacheRepositoryService")
-    protected RepositoryService repositoryService;
 
     @Autowired
     @Qualifier("repositoryService")
@@ -2907,6 +2911,22 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
                 attrValue);
     }
 
+    @SuppressWarnings("WeakerAccess")
+    protected void setDefaultCaching(@Nullable CachingStrategyType strategy, OperationResult result)
+            throws SchemaException, ObjectNotFoundException, ObjectAlreadyExistsException {
+        repositoryService.modifyObject(
+                SystemConfigurationType.class,
+                SystemObjectsType.SYSTEM_CONFIGURATION.value(),
+                deltaFor(SystemConfigurationType.class)
+                        .item(SystemConfigurationType.F_INTERNALS,
+                                InternalsConfigurationType.F_SHADOW_CACHING,
+                                ShadowCachingConfigurationType.F_DEFAULT_POLICY,
+                                ShadowCachingPolicyType.F_CACHING_STRATEGY)
+                        .replace(strategy)
+                        .asItemDeltas(),
+                result);
+    }
+
     protected void setDefaultUserTemplate(String userTemplateOid) throws ObjectNotFoundException, SchemaException, ObjectAlreadyExistsException {
         setDefaultObjectTemplate(UserType.COMPLEX_TYPE, userTemplateOid);
     }
@@ -4069,6 +4089,16 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
         return addObject(object, null, task, result);
     }
 
+    /** Not showing the ADD delta on the console. */
+    public String addObjectSilently(ObjectType objectBean, Task task, OperationResult result)
+            throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
+            ConfigurationException, ObjectNotFoundException, PolicyViolationException, ObjectAlreadyExistsException {
+        var object = objectBean.asPrismObject();
+        var executedDeltas = modelService.executeChanges(List.of(object.createAddDelta()), null, task, result);
+        object.setOid(ObjectDeltaOperation.findAddDeltaOid(executedDeltas, object));
+        return object.getOid();
+    }
+
     public String addObject(ObjectType object, Task task, OperationResult result)
             throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
             ConfigurationException, ObjectNotFoundException, PolicyViolationException, ObjectAlreadyExistsException {
@@ -4781,7 +4811,7 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
                 //TODO
             }
         };
-        mpAuthentication.addAuthentications(moduleAuthentication);
+        mpAuthentication.addAuthentication(moduleAuthentication);
         AuthModule authModule = new AuthModule() {
             @Override
             public ModuleAuthentication getBaseModuleAuthentication() {
@@ -5527,23 +5557,6 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
             AuthorizationDecisionType decision = constraints.findItemDecision(expectedAllowedItemPath);
             assertEquals("Wrong decision for item " + expectedAllowedItemPath, AuthorizationDecisionType.ALLOW, decision);
         }
-    }
-
-    @Override
-    protected void assertEncryptedUserPassword(String userOid, String expectedClearPassword) throws EncryptionException, ObjectNotFoundException, SchemaException {
-        OperationResult result = new OperationResult(AbstractIntegrationTest.class.getName() + ".assertEncryptedUserPassword");
-        PrismObject<UserType> user = repositoryService.getObject(UserType.class, userOid, null, result);
-        result.computeStatus();
-        TestUtil.assertSuccess(result);
-        assertEncryptedUserPassword(user, expectedClearPassword);
-    }
-
-    @Override
-    protected void assertEncryptedUserPassword(PrismObject<UserType> user, String expectedClearPassword) throws EncryptionException {
-        UserType userType = user.asObjectable();
-        ProtectedStringType protectedActualPassword = userType.getCredentials().getPassword().getValue();
-        String actualClearPassword = protector.decryptString(protectedActualPassword);
-        assertEquals("Wrong password for " + user, expectedClearPassword, actualClearPassword);
     }
 
     protected void assertPasswordMetadata(PrismObject<UserType> user, ItemName credentialType, boolean create,
@@ -7261,42 +7274,6 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
                 null, task, result);
     }
 
-    public interface FunctionCall<X> {
-        X execute() throws CommonException, IOException;
-    }
-
-    public interface ProcedureCall {
-        void execute() throws CommonException, IOException;
-    }
-
-    protected <X> X traced(FunctionCall<X> tracedCall)
-            throws CommonException, IOException {
-        return traced(createModelLoggingTracingProfile(), tracedCall);
-    }
-
-    protected void traced(ProcedureCall tracedCall) throws CommonException, IOException {
-        traced(createModelLoggingTracingProfile(), tracedCall);
-    }
-
-    public void traced(TracingProfileType profile, ProcedureCall tracedCall) throws CommonException, IOException {
-        setGlobalTracingOverride(profile);
-        try {
-            tracedCall.execute();
-        } finally {
-            unsetGlobalTracingOverride();
-        }
-    }
-
-    public <X> X traced(TracingProfileType profile, FunctionCall<X> tracedCall)
-            throws CommonException, IOException {
-        setGlobalTracingOverride(profile);
-        try {
-            return tracedCall.execute();
-        } finally {
-            unsetGlobalTracingOverride();
-        }
-    }
-
     protected <F extends FocusType> void assertLinks(PrismObject<F> focus, int live, int related) {
         assertFocus(focus, "")
                 .assertLinks(live, related);
@@ -7454,6 +7431,7 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     /**
      * Executes a {@link ProcedureCall} in {@link TaskExecutionMode#SIMULATED_PRODUCTION} mode.
      */
+    @SuppressWarnings("SameParameterValue")
     protected TestSimulationResult executeInProductionSimulationMode(
             SimulationDefinitionType simulationDefinition, Task task, OperationResult result, ProcedureCall simulatedCall)
             throws CommonException {
@@ -7783,14 +7761,14 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     }
 
     protected void refreshShadowIfNeeded(@NotNull String shadowOid) throws CommonException {
-        if (InternalsConfig.isShadowCachingOnByDefault()) {
+        if (InternalsConfig.isShadowCachingFullByDefault()) {
             provisioningService.getShadow(shadowOid, null, getTestTask(), getTestOperationResult());
         }
     }
 
     protected void refreshAllShadowsIfNeeded(@NotNull String resourceOid, @NotNull ResourceObjectTypeIdentification type)
             throws CommonException {
-        if (!InternalsConfig.isShadowCachingOnByDefault()) {
+        if (!InternalsConfig.isShadowCachingFullByDefault()) {
             return;
         }
         provisioningService.searchShadows(

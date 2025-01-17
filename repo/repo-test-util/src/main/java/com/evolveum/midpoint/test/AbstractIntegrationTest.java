@@ -54,10 +54,13 @@ import com.evolveum.midpoint.schema.config.ConfigurationItemOrigin;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
+
 import jakarta.xml.bind.JAXBElement;
+
 import javax.xml.datatype.Duration;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
@@ -273,6 +276,11 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
 
         if (requiresNativeRepository() && !isNativeRepository()) {
             IntegrationTestTools.display("Skipping system initialization, as the test class requires native repository");
+            return;
+        }
+
+        if (shouldSkipWholeClass()) {
+            IntegrationTestTools.display("Skipping system initialization, as the whole test class is to be skipped");
             return;
         }
 
@@ -590,7 +598,7 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
     }
 
     protected PrismObject<ShadowType> repoAddShadowFromFile(File file, OperationResult parentResult)
-            throws SchemaException, ObjectAlreadyExistsException, EncryptionException, IOException {
+            throws SchemaException, ObjectAlreadyExistsException, EncryptionException, IOException, ConfigurationException {
 
         OperationResult result = parentResult.createSubresult(AbstractIntegrationTest.class.getName()
                 + ".repoAddShadowFromFile");
@@ -600,11 +608,11 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
 
         PrismContainer<Containerable> attrCont = object.findContainer(ShadowType.F_ATTRIBUTES);
         for (Item<?, ?> attr : attrCont.getValue().getItems()) {
-            if (attr instanceof PrismProperty<?> && attr.getDefinition() == null) {
+            if (attr instanceof PrismProperty<?> prismProperty && attr.getDefinition() == null) {
                 ShadowSimpleAttributeDefinition<String> attrDef =
                         ObjectFactory.createSimpleAttributeDefinition(attr.getElementName(), DOMUtil.XSD_STRING);
                 //noinspection unchecked,rawtypes
-                ((PrismProperty<?>) attr).setDefinition((PrismPropertyDefinition) attrDef);
+                prismProperty.setDefinition((PrismPropertyDefinition) attrDef);
             }
         }
 
@@ -1379,7 +1387,7 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
         long actualIncrement = currentCount - getLastCount(counter);
         var a = assertThat(actualIncrement)
                 .as("Increment in " + counter.getLabel());
-        if (InternalsConfig.isShadowCachingOnByDefault()
+        if (InternalsConfig.isShadowCachingFullByDefault()
                 && (counter == InternalCounters.SHADOW_FETCH_OPERATION_COUNT || counter == InternalCounters.CONNECTOR_OPERATION_COUNT)) {
             a.isLessThanOrEqualTo(expectedIncrement);
         } else {
@@ -1461,7 +1469,7 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
     }
 
     protected void assertSteadyResourcesAfterInvalidation() {
-        var invalidated = InternalsConfig.isShadowCachingOnByDefault();
+        var invalidated = InternalsConfig.isShadowCachingFullByDefault();
         assertCounterIncrement(InternalCounters.RESOURCE_REPOSITORY_READ_COUNT, invalidated ? 1 : 0);
         assertCounterIncrement(InternalCounters.RESOURCE_REPOSITORY_MODIFY_COUNT, 0);
         assertCounterIncrement(InternalCounters.RESOURCE_SCHEMA_FETCH_COUNT, 0);
@@ -2046,11 +2054,13 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
         assertEncryptedUserPassword(user, expectedClearPassword);
     }
 
-    protected void assertEncryptedUserPassword(PrismObject<UserType> user, String expectedClearPassword) throws EncryptionException, SchemaException {
+    protected void assertEncryptedUserPassword(PrismObject<UserType> user, String expectedClearPassword)
+            throws EncryptionException, SchemaException {
         assertUserPassword(user, expectedClearPassword, CredentialsStorageTypeType.ENCRYPTION);
     }
 
-    protected PasswordType assertUserPassword(PrismObject<UserType> user, String expectedClearPassword) throws EncryptionException, SchemaException {
+    protected PasswordType assertUserPassword(PrismObject<UserType> user, String expectedClearPassword)
+            throws EncryptionException, SchemaException {
         return assertUserPassword(user, expectedClearPassword, getPasswordStorageType());
     }
 
@@ -2229,10 +2239,79 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
         passwordType.setValue(ps);
     }
 
+    protected PasswordType assertShadowPassword(
+            ShadowType shadow, String expectedClearPassword, CredentialsStorageTypeType storageType)
+            throws EncryptionException, SchemaException {
+        CredentialsType creds = shadow.getCredentials();
+        assertNotNull(creds, "No credentials in " + shadow);
+        PasswordType password = creds.getPassword();
+        assertNotNull(password, "No password in " + shadow);
+        ProtectedStringType protectedActualPassword = password.getValue();
+        assertProtectedString("Password for " + shadow, expectedClearPassword, protectedActualPassword, storageType);
+        return password;
+    }
+
+    protected void assertIncompleteShadowPassword(ShadowType shadow) {
+        assertIncompleteShadowPassword(shadow.asPrismObject());
+    }
+
     protected void assertIncompleteShadowPassword(PrismObject<ShadowType> shadow) {
-        PrismProperty<PolyStringType> passValProp = shadow.findProperty(SchemaConstants.PATH_PASSWORD_VALUE);
+        var passValProp = ShadowUtil.getPasswordValueProperty(shadow.asObjectable());
         assertNotNull(passValProp, "No password value property in " + shadow);
         assertTrue(passValProp.isIncomplete(), "Password value property does not have 'incomplete' flag in " + shadow);
+        var passVal = passValProp.getValue();
+        assertNull(passVal, "Unexpected password value in " + shadow + ": " + passVal);
+    }
+
+    // Expected clear text of `null` means that the password should be there, should be hashed, but we don't check the value
+    protected void assertHashedShadowPassword(ShadowType shadow, @Nullable String expectedClearText)
+            throws SchemaException, EncryptionException {
+        assertHashedShadowPassword(shadow.asPrismObject(), expectedClearText);
+    }
+
+    // Expected clear text of `null` means that the password should be there, should be hashed, but we don't check the value
+    protected void assertHashedShadowPassword(PrismObject<ShadowType> shadow, @Nullable String expectedClearText)
+            throws SchemaException, EncryptionException {
+        var passVal = assertShadowPasswordPresent(shadow);
+        assertTrue(passVal.isHashed(), "Password value is not hashed in " + shadow);
+        if (expectedClearText != null
+                && !protector.compareCleartext(passVal, new ProtectedStringType().clearValue(expectedClearText))) {
+            fail("Expected cleartext '" + expectedClearText + "' does not match the hashed value in " + shadow);
+        }
+    }
+
+    // Expected clear text of `null` means that the password should be there, should be encrypted, but we don't check the value
+    protected void assertEncryptedShadowPassword(ShadowType shadow, @Nullable String expectedClearText)
+            throws EncryptionException {
+        assertEncryptedShadowPassword(shadow.asPrismObject(), expectedClearText);
+    }
+
+    // Expected clear text of `null` means that the password should be there, should be encrypted, but we don't check the value
+    protected void assertEncryptedShadowPassword(PrismObject<ShadowType> shadow, @Nullable String expectedClearText)
+            throws EncryptionException {
+        var passVal = assertShadowPasswordPresent(shadow);
+        assertTrue(passVal.isEncrypted(), "Password value is not encrypted in " + shadow);
+        var clearText = protector.decryptString(passVal);
+        if (expectedClearText != null) {
+            assertThat(clearText)
+                    .as("decrypted password")
+                    .isEqualTo(expectedClearText);
+        } else {
+            displayValue("decrypted password", clearText);
+        }
+    }
+
+    private static @NotNull ProtectedStringType assertShadowPasswordPresent(PrismObject<ShadowType> shadow) {
+        var passValProp = ShadowUtil.getPasswordValueProperty(shadow.asObjectable());
+        assertNotNull(passValProp, "No password value property in " + shadow);
+        assertFalse(passValProp.isIncomplete(), "Password value property does have 'incomplete' flag in " + shadow);
+        var passVal = passValProp.getRealValue();
+        assertNotNull(passVal, "No password value in " + shadow);
+        return passVal;
+    }
+
+    protected void assertNoShadowPassword(ShadowType shadow) {
+        assertNoShadowPassword(shadow.asPrismObject());
     }
 
     protected void assertNoShadowPassword(PrismObject<ShadowType> shadow) {
@@ -2295,7 +2374,6 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
         PasswordType password = creds.getPassword();
         assertNotNull(password, "No password in shadow " + shadow);
         ValueMetadataType metadata = ValueMetadataTypeUtil.getMetadata(password);
-        assertNotNull(metadata, "No metadata in shadow " + shadow);
         assertMetadata("Password metadata in " + shadow, metadata, passwordCreated, false,
                 startCal, endCal, actorOid, channel);
     }
@@ -2309,6 +2387,7 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
     protected <O extends ObjectType> PrismObject<O> parseObject(String stringData) throws SchemaException, IOException {
         return prismContext.parseObject(stringData);
     }
+
     protected void displayCleanup() {
         TestUtil.displayCleanup(getTestNameShort());
     }
@@ -4483,6 +4562,26 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
         }
     }
 
+    @BeforeMethod
+    public void skipWholeClassIfNeeded() {
+        if (shouldSkipWholeClass()) {
+            throw new SkipException("Skipping the whole test class");
+        }
+    }
+
+    /** Override to skip the whole test class: initialization and all methods. */
+    protected boolean shouldSkipWholeClass() {
+        return false;
+    }
+
+    /**
+     * Used for test classes that provide their own explicit caching configuration, so there's no point in running them
+     * under caching overrides.
+     */
+    protected boolean isUsingCachingOverride() {
+        return !InternalsConfig.getShadowCachingDefault().isStandardForTests();
+    }
+
     /** To be used at individual test method level. */
     protected void skipIfNotNativeRepository() {
         if (!isNativeRepository()) {
@@ -4625,17 +4724,76 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
 
     protected void invalidateShadowCacheIfNeeded(String resourceOid)
             throws SchemaException, ObjectNotFoundException, ObjectAlreadyExistsException {
-        if (InternalsConfig.isShadowCachingOnByDefault()) {
-            repositoryService.modifyObject(
-                    ResourceType.class,
-                    resourceOid,
-                    prismContext.deltaFor(ResourceType.class)
-                            .item(ResourceType.F_CACHE_INVALIDATION_TIMESTAMP)
-                            .replace(clock.currentTimeXMLGregorianCalendar())
-                            .asItemDeltas(),
-                    getTestOperationResult());
+        if (InternalsConfig.isShadowCachingFullByDefault()) {
+            invalidateShadowCache(resourceOid);
         } else {
             // No need to invalidate; caching should either be off, or the test should take care of invalidation.
+        }
+    }
+
+    protected void invalidateShadowCache(String resourceOid)
+            throws ObjectNotFoundException, SchemaException, ObjectAlreadyExistsException {
+        repositoryService.modifyObject(
+                ResourceType.class,
+                resourceOid,
+                prismContext.deltaFor(ResourceType.class)
+                        .item(ResourceType.F_CACHE_INVALIDATION_TIMESTAMP)
+                        .replace(clock.currentTimeXMLGregorianCalendar())
+                        .asItemDeltas(),
+                getTestOperationResult());
+    }
+
+    protected PrismPropertyValue<?> constBasedValue(String value) {
+        var constExpressionEvaluator = new ConstExpressionEvaluatorType();
+        constExpressionEvaluator.setValue(value);
+
+        var ppv = prismContext.itemFactory().createPropertyValue();
+        ppv.setExpression(
+                new ExpressionWrapper(
+                        SchemaConstantsGenerated.C_EXPRESSION,
+                        new ExpressionType()
+                                .expressionEvaluator(new JAXBElement<>(
+                                        SchemaConstantsGenerated.C_CONST,
+                                        ConstExpressionEvaluatorType.class,
+                                        constExpressionEvaluator))));
+        return ppv;
+    }
+
+    public interface FunctionCall<X> {
+        X execute() throws CommonException, IOException;
+    }
+
+    public interface ProcedureCall {
+        void execute() throws CommonException, IOException;
+    }
+
+    protected <X> X traced(FunctionCall<X> tracedCall)
+            throws CommonException, IOException {
+        return traced(createModelLoggingTracingProfile(), tracedCall);
+    }
+
+    protected void traced(ProcedureCall tracedCall) throws CommonException, IOException {
+        traced(createModelLoggingTracingProfile(), tracedCall);
+    }
+
+    /** Beware, this performs tracing only at defined points, e.g. at the clockwork entry/exit. */
+    public void traced(TracingProfileType profile, ProcedureCall tracedCall) throws CommonException, IOException {
+        setGlobalTracingOverride(profile);
+        try {
+            tracedCall.execute();
+        } finally {
+            unsetGlobalTracingOverride();
+        }
+    }
+
+    /** Beware, this performs tracing only at defined points, e.g. at the clockwork entry/exit. */
+    public <X> X traced(TracingProfileType profile, FunctionCall<X> tracedCall)
+            throws CommonException, IOException {
+        setGlobalTracingOverride(profile);
+        try {
+            return tracedCall.execute();
+        } finally {
+            unsetGlobalTracingOverride();
         }
     }
 }

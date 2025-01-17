@@ -138,6 +138,12 @@
             </attribute>
             <attribute>
                 <ref>ri:internalId</ref>
+                <volatility>
+                    <!-- The value is generated when the object is created -->
+                    <incoming>
+                        <operation>add</operation>
+                    </incoming>
+                </volatility>
                 <inbound>
                     <strength>strong</strength>
                     <target>

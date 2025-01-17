@@ -68,6 +68,9 @@ An example of a campaign definition (taken from link:https://github.com/Evolveum
     <name>All user assignments</name>
     <description>Certifies all users' assignments. Everything is certified by the administrator.</description>
     <handlerUri>http://midpoint.evolveum.com/xml/ns/public/certification/handlers-3#direct-assignment</handlerUri>
+    <scopeDefinition xsi:type="AccessCertificationAssignmentReviewScopeType">
+        <objectType>UserType</objectType>
+    </scopeDefinition>
     <ownerRef oid="00000000-0000-0000-0000-000000000002" type="UserType"><!-- administrator --></ownerRef>
     <remediationDefinition>
         <style>automated</style>
@@ -168,12 +171,7 @@ An example of more advanced scope definition:
 <scopeDefinition xsi:type="AccessCertificationAssignmentReviewScopeType">
     <objectType>UserType</objectType>
     <searchFilter>
-        <q:org>
-            <q:path>parentOrgRef</q:path>
-            <q:orgRef oid="00000000-8888-6666-0000-100000000001">       <!-- Governor Office -->
-                <q:scope>SUBTREE</q:scope>
-            </q:orgRef>
-        </q:org>
+        <q:text>. inOrg[ONE_LEVEL] "284d0298-99b3-438d-a7ea-a323b97b795f"</q:text>
     </searchFilter>
     <itemSelectionExpression>
         <script>
@@ -275,15 +273,20 @@ WARNING: Be aware that _availableResponse_ element is deprecated therefore it's 
 === Configuring collection views for certification items
 
 Certification items collection view brings more extended configuration options.
-Default certification items collection view can be configured in the _systemConfiguration -> adminGuiConfiguration -> objectCollectionViews -> objectCollectionView_.
-To be used as a default view, the collection view identifier should be defined in the _accessCertification_ -> _defaultView_ element in the system configuration.
+Default certification items collection view can be configured in the _systemConfiguration -> accessCertification -> defaultView_.
 Collection view configuration should define identifier and type.
 Collection view can also contain columns and actions configuration.
 
 [source,xml]
 ----
-            <objectCollectionView>
+            <defaultView>
                 <identifier>defaultCertItemsView</identifier>
+                <column>
+                    <name>certItemObject</name>
+                    <display>
+                        <label>Cert. item object</label>
+                    </display>
+                </column>
                 <column>
                     <name>stage</name>
                     <path>stageNumber</path>
@@ -292,11 +295,7 @@ Collection view can also contain columns and actions configuration.
                     </display>
                 </column>
                 <column>
-                    <name>comment</name>
-                    <path>output/comment</path>
-                    <display>
-                        <label/>
-                    </display>
+                    <name>certItemEditableComment</name>
                 </column>
                 <includeDefaultColumns>true</includeDefaultColumns>
                 <type>AccessCertificationWorkItemType</type>
@@ -319,10 +318,11 @@ Collection view can also contain columns and actions configuration.
                         <type>AccessCertificationWorkItemType</type>
                     </panel>
                 </action>
-            </objectCollectionView>
+            </defaultView>
 ----
 
 To learn more about actions configuration, please follow to xref:/midpoint/reference/roles-policies/certification/actions/[GUI Actions] page.
+To learn more about columns configuration, please follow to xref:/midpoint/reference/roles-policies/certification/columns-configuration/[Columns configuration] page.
 
 Object collection view configuration can be also defined within access certification definition (_view_ element).
 This configuration will be merged with the global one and applied to all campaigns created on the base of this definition.

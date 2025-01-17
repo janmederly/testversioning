@@ -37,6 +37,8 @@ import com.evolveum.midpoint.web.component.util.VisibleBehaviour;
 import com.evolveum.midpoint.web.page.admin.configuration.component.EmptyOnBlurAjaxFormUpdatingBehaviour;
 import com.evolveum.midpoint.web.util.InfoTooltipBehavior;
 
+import org.jetbrains.annotations.NotNull;
+
 public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper> extends AbstractSearchItemPanel<S> {
 
     private static final long serialVersionUID = 1L;
@@ -57,6 +59,24 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         super.onInitialize();
         initLayout();
     }
+
+    @Override
+    protected void onBeforeRender() {
+        super.onBeforeRender();
+        Label searchItemLabel = (Label) get(createComponentPath(ID_SEARCH_ITEM_CONTAINER, ID_SEARCH_ITEM_LABEL));
+        Component searchItemField = getSearchItemFieldPanel();
+        if (searchItemField instanceof InputPanel inputPanel) {
+            inputPanel.getBaseFormComponent().add(AttributeAppender.append(
+                    "aria-labelledby",
+                    searchItemLabel.getMarkupId()));
+        }
+    }
+
+    protected Component getSearchItemFieldPanel() {
+        return get(createComponentPath(ID_SEARCH_ITEM_CONTAINER, ID_SEARCH_ITEM_FIELD));
+    }
+
+    ;
 
     protected void initLayout() {
         setOutputMarkupId(true);
@@ -92,8 +112,8 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         searchItemContainer.add(help);
 
         Component searchItemField = initSearchItemField(ID_SEARCH_ITEM_FIELD);
-        if (searchItemField instanceof InputPanel && !(searchItemField instanceof AutoCompleteTextPanel)) {
-            FormComponent<?> baseFormComponent = ((InputPanel) searchItemField).getBaseFormComponent();
+        if (searchItemField instanceof InputPanel inputPanel && !(searchItemField instanceof AutoCompleteTextPanel)) {
+            FormComponent<?> baseFormComponent = inputPanel.getBaseFormComponent();
             baseFormComponent.add(AttributeAppender.append("style", "max-width: 400px !important;"));
             baseFormComponent.add(new EmptyOnBlurAjaxFormUpdatingBehaviour());
             baseFormComponent.add(AttributeAppender.append("readonly", () -> isFieldEnabled() ? null : "readonly"));
@@ -142,7 +162,7 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         if (getModelObject() == null) {
             return () -> "";
         }
-        return Model.of(getModelObject().getHelp());
+        return getModelObject().getHelp();
     }
 
     protected abstract Component initSearchItemField(String id);
@@ -164,14 +184,15 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         if (getModelObject() == null) {
             return () -> "";
         }
-        return StringUtils.isNotEmpty(getModelObject().getName()) ? createStringResource(getModelObject().getName()) : Model.of("");
+        @NotNull IModel<String> nameModel = getModelObject().getName();
+        return StringUtils.isNotEmpty(nameModel.getObject()) ? nameModel : Model.of("");
     }
 
     private IModel<String> createTitleModel() {
         if (getModelObject() == null) {
             return () -> "";
         }
-        return Model.of(getModelObject().getTitle());
+        return getModelObject().getTitle();
     }
 
     protected void searchPerformed(AjaxRequestTarget target) {

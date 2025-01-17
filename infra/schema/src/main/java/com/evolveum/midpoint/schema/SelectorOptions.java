@@ -194,8 +194,10 @@ public class SelectorOptions<T> implements Serializable, DebugDumpable, ShortDum
     public static <T> Collection<T> findOptionsForPath(Collection<SelectorOptions<T>> options, @NotNull UniformItemPath path) {
         Collection<T> rv = new ArrayList<>();
         for (SelectorOptions<T> option : CollectionUtils.emptyIfNull(options)) {
-            if (path.equivalent(option.getUniformItemPathOrNull())) {
-                rv.add(option.getOptions());
+            if (path.isSuperPathOrEquivalent(option.getUniformItemPathOrNull())) {
+                if (option.getOptions() != null) {
+                    rv.add(option.getOptions());
+                }
             }
         }
         return rv;
@@ -207,7 +209,8 @@ public class SelectorOptions<T> implements Serializable, DebugDumpable, ShortDum
     }
 
     private static final Set<Class<?>> OBJECTS_NOT_RETURNED_FULLY_BY_DEFAULT = new HashSet<>(Arrays.asList(
-            UserType.class, RoleType.class, OrgType.class, ServiceType.class, AbstractRoleType.class,
+            UserType.class,
+            RoleType.class, OrgType.class, ServiceType.class, ArchetypeType.class, AbstractRoleType.class,
             FocusType.class, AssignmentHolderType.class, ObjectType.class,
             TaskType.class, LookupTableType.class, AccessCertificationCampaignType.class,
             ShadowType.class // because of index-only attributes

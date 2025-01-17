@@ -10,12 +10,12 @@ import java.util.*;
 import java.util.stream.Stream;
 
 import com.evolveum.midpoint.schema.util.SecurityPolicyUtil;
+import com.evolveum.midpoint.security.api.SecurityUtil;
 import com.evolveum.midpoint.util.logging.Trace;
 
 import com.evolveum.midpoint.util.logging.TraceManager;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.apache.commons.collections4.list.UnmodifiableList;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Validate;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -151,11 +151,15 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
     }
 
     public List<ModuleAuthentication> getAuthentications() {
-        return authentications;
+        return Collections.unmodifiableList(authentications);
     }
 
-    public void addAuthentications(ModuleAuthentication authentication) {
-        getAuthentications().add(authentication);
+    public void addAuthentication(ModuleAuthentication authentication) {
+        authentications.add(authentication);
+    }
+
+    public void setAuthentication(int index, ModuleAuthentication authentication) {
+        authentications.set(index, authentication);
     }
 
     @Override
@@ -355,7 +359,7 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
     public int getIndexOfProcessingModule(boolean createEmptyAuthenticationIfNeeded) {
         if (getAuthentications().isEmpty()) {
             if (createEmptyAuthenticationIfNeeded) {
-                addAuthentications(getAuthModules().get(0).getBaseModuleAuthentication());
+                addAuthentication(getAuthModules().get(0).getBaseModuleAuthentication());
             }
             return 0;
         }
@@ -367,7 +371,7 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
         int endSize = getAuthModules().size();
         if (actualSize < endSize) {
             if (createEmptyAuthenticationIfNeeded) {
-                addAuthentications(getAuthModules().get(actualSize).getBaseModuleAuthentication());
+                addAuthentication(getAuthModules().get(actualSize).getBaseModuleAuthentication());
             }
             return actualSize;
         }
@@ -576,6 +580,15 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
     }
 
     public int resolveParallelModules(HttpServletRequest request, int actualIndex) {
+        if (actualIndex < 0) {
+            return actualIndex;
+        }
+
+        if (getAuthenticationChannel() != null
+                && !SecurityUtil.isRestAndActuatorChannel(getAuthenticationChannel().getChannelId())) {
+            return actualIndex;
+        }
+
         String header = request.getHeader("Authorization");
         if (header == null) {
             return actualIndex;
@@ -598,9 +611,9 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
                 parallelProcessingModule.setState(AuthenticationModuleState.FAILURE);
             }
             if (usedIndex == NO_MODULE_FOUND_INDEX) {
-                getAuthentications().add(parallelProcessingModule);
+                addAuthentication(parallelProcessingModule);
             } else {
-                getAuthentications().set(usedIndex, parallelProcessingModule);
+                setAuthentication(usedIndex, parallelProcessingModule);
             }
         }
         if (resolvedIndex == NO_MODULE_FOUND_INDEX) {
@@ -727,7 +740,7 @@ public class MidpointAuthentication extends AbstractAuthenticationToken implemen
      * Restart this authentication, so next request start from one module in authentication sequence.
      */
     public void restart() {
-        getAuthentications().clear();
+        authentications.clear();
         getAuthorities().clear();
         principal = null;
         credential = null;
