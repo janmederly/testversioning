@@ -9,13 +9,17 @@ package com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.page;
 
 import static com.evolveum.midpoint.common.mining.utils.RoleAnalysisUtils.getSessionOptionType;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.page.PageRoleAnalysisSession.PARAM_IS_WIZARD;
-import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.RoleAnalysisObjectUtils.deleteSingleRoleAnalysisSession;
 import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.table.RoleAnalysisTableTools.densityBasedColor;
 
 import java.io.Serial;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisChannelMode;
+
+import com.evolveum.midpoint.gui.api.component.LabelWithHelpPanel;
+import com.evolveum.midpoint.prism.PrismObject;
 
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
@@ -46,11 +50,14 @@ import com.evolveum.midpoint.gui.impl.prism.panel.PrismPropertyHeaderPanel;
 import com.evolveum.midpoint.gui.impl.util.DetailsPageUtil;
 import com.evolveum.midpoint.model.api.AssignmentObjectRelation;
 import com.evolveum.midpoint.model.api.authentication.CompiledObjectCollectionView;
+import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
 import com.evolveum.midpoint.prism.Containerable;
 import com.evolveum.midpoint.prism.PrismContainerDefinition;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.security.api.AuthorizationConstants;
+import com.evolveum.midpoint.task.api.Task;
+import com.evolveum.midpoint.web.component.data.column.AjaxLinkPanel;
 import com.evolveum.midpoint.web.component.data.column.ColumnMenuAction;
 import com.evolveum.midpoint.web.component.form.MidpointForm;
 import com.evolveum.midpoint.web.component.menu.cog.ButtonInlineMenuItem;
@@ -60,10 +67,10 @@ import com.evolveum.midpoint.web.component.util.SelectableBean;
 import com.evolveum.midpoint.web.model.PrismPropertyWrapperHeaderModel;
 import com.evolveum.midpoint.web.page.admin.PageAdmin;
 import com.evolveum.midpoint.web.session.UserProfileStorage.TableId;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.AbstractAnalysisSessionOptionType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RangeType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisSessionStatisticType;
-import com.evolveum.midpoint.xml.ns._public.common.common_3.RoleAnalysisSessionType;
+import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 @PageDescriptor(
         urls = {
@@ -80,6 +87,7 @@ public class PageRoleAnalysis extends PageAdmin {
 
     private static final String DOT_CLASS = PageRoleAnalysis.class.getName() + ".";
     private static final String OP_DELETE_SESSION = DOT_CLASS + "deleteSession";
+    private static final String OP_UPDATE_STATUS = DOT_CLASS + "updateOperationStatus";
     private static final String ID_MAIN_FORM = "mainForm";
     private static final String ID_CHART_PANEL = "chartPanel";
     private static final String ID_TABLE = "table";
@@ -107,21 +115,29 @@ public class PageRoleAnalysis extends PageAdmin {
                     @Override
                     public void onClick(AjaxRequestTarget target) {
 
+                        PageBase page = (PageBase) getPage();
+                        Task task = page.createSimpleTask(OP_DELETE_SESSION);
+                        RoleAnalysisService roleAnalysisService = page.getRoleAnalysisService();
+
                         List<SelectableBean<RoleAnalysisSessionType>> selectedObjects = getTable().getSelectedObjects();
                         OperationResult result = new OperationResult(OP_DELETE_SESSION);
                         if (selectedObjects.size() == 1 && getRowModel() == null) {
                             try {
                                 SelectableBean<RoleAnalysisSessionType> selectableSession = selectedObjects.get(0);
-                                deleteSingleRoleAnalysisSession((PageBase) getPage(), selectableSession.getValue().getOid(), result
-                                );
+                                roleAnalysisService
+                                        .deleteSession(selectableSession.getValue().getOid(),
+                                                task, result
+                                        );
                             } catch (Exception e) {
                                 throw new RuntimeException(e);
                             }
                         } else if (getRowModel() != null) {
                             try {
                                 IModel<SelectableBean<RoleAnalysisSessionType>> rowModel = getRowModel();
-                                deleteSingleRoleAnalysisSession((PageBase) getPage(), rowModel.getObject().getValue().getOid(), result
-                                );
+                                String oid = rowModel.getObject().getValue().getOid();
+                                roleAnalysisService
+                                        .deleteSession(oid, task, result
+                                        );
                             } catch (Exception e) {
                                 throw new RuntimeException(e);
                             }
@@ -129,7 +145,9 @@ public class PageRoleAnalysis extends PageAdmin {
                             for (SelectableBean<RoleAnalysisSessionType> selectedObject : selectedObjects) {
                                 try {
                                     String parentOid = selectedObject.getValue().asPrismObject().getOid();
-                                    deleteSingleRoleAnalysisSession((PageBase) getPage(), parentOid, result);
+                                    roleAnalysisService
+                                            .deleteSession(parentOid,
+                                                    task, result);
 
                                 } catch (Exception e) {
                                     throw new RuntimeException(e);
@@ -233,24 +251,46 @@ public class PageRoleAnalysis extends PageAdmin {
                 };
                 columns.add(column);
 
-                column = new AbstractExportableColumn<>(createStringResource("AbstractAnalysisSessionOptionType.minPropertiesOverlap")) {
+                //TODO check if this is needed display
+//                column = new AbstractExportableColumn<>(createStringResource("AbstractAnalysisSessionOptionType.minPropertiesOverlap")) {
+//
+//                    @Override
+//                    public Component getHeader(String componentId) {
+//                        return createColumnHeader(componentId, abstractContainerDefinitionModel,
+//                                AbstractAnalysisSessionOptionType.F_MIN_PROPERTIES_OVERLAP);
+//                    }
+//
+//                    @Override
+//                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisSessionType>>> cellItem,
+//                            String componentId, IModel<SelectableBean<RoleAnalysisSessionType>> model) {
+//
+//                        cellItem.add(new Label(componentId, extractMinPropertiesOverlap(model)));
+//                    }
+//
+//                    @Override
+//                    public IModel<String> getDataModel(IModel<SelectableBean<RoleAnalysisSessionType>> rowModel) {
+//                        return extractMinPropertiesOverlap(rowModel);
+//                    }
+//
+//                };
+//                columns.add(column);
 
+                column = new AbstractExportableColumn<>(createStringResource("AbstractAnalysisSessionOptionType.minMembersCount")) {
                     @Override
                     public Component getHeader(String componentId) {
                         return createColumnHeader(componentId, abstractContainerDefinitionModel,
-                                AbstractAnalysisSessionOptionType.F_MIN_PROPERTIES_OVERLAP);
+                                AbstractAnalysisSessionOptionType.F_MIN_MEMBERS_COUNT);
                     }
 
                     @Override
                     public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisSessionType>>> cellItem,
                             String componentId, IModel<SelectableBean<RoleAnalysisSessionType>> model) {
-
-                        cellItem.add(new Label(componentId, extractMinPropertiesOverlap(model)));
+                        cellItem.add(new Label(componentId, extractMinGroupOption(model)));
                     }
 
                     @Override
                     public IModel<String> getDataModel(IModel<SelectableBean<RoleAnalysisSessionType>> rowModel) {
-                        return extractMinPropertiesOverlap(rowModel);
+                        return extractMinGroupOption(rowModel);
                     }
 
                 };
@@ -274,27 +314,6 @@ public class PageRoleAnalysis extends PageAdmin {
                     @Override
                     public IModel<String> getDataModel(IModel<SelectableBean<RoleAnalysisSessionType>> rowModel) {
                         return extractPropertiesRange(rowModel);
-                    }
-
-                };
-                columns.add(column);
-
-                column = new AbstractExportableColumn<>(createStringResource("AbstractAnalysisSessionOptionType.minMembersCount")) {
-                    @Override
-                    public Component getHeader(String componentId) {
-                        return createColumnHeader(componentId, abstractContainerDefinitionModel,
-                                AbstractAnalysisSessionOptionType.F_MIN_MEMBERS_COUNT);
-                    }
-
-                    @Override
-                    public void populateItem(Item<ICellPopulator<SelectableBean<RoleAnalysisSessionType>>> cellItem,
-                            String componentId, IModel<SelectableBean<RoleAnalysisSessionType>> model) {
-                        cellItem.add(new Label(componentId, extractMinGroupOption(model)));
-                    }
-
-                    @Override
-                    public IModel<String> getDataModel(IModel<SelectableBean<RoleAnalysisSessionType>> rowModel) {
-                        return extractMinGroupOption(rowModel);
                     }
 
                 };
@@ -363,6 +382,74 @@ public class PageRoleAnalysis extends PageAdmin {
                         return extractMeanDensity(rowModel);
                     }
 
+                };
+                columns.add(column);
+
+                column = new AbstractExportableColumn<>(
+                        createStringResource("RoleAnalysis.modificationTargetPanel.status")) {
+                    @Override
+                    public Component getHeader(String componentId) {
+                        return new LabelWithHelpPanel(componentId,
+                                createStringResource("RoleAnalysis.modificationTargetPanel.status")) {
+                            @Override
+                            protected IModel<String> getHelpModel() {
+                                return createStringResource("RoleAnalysis.modificationTargetPanel.status.tooltip");
+                            }
+                        };
+                    }
+
+                    @Override
+                    public IModel<?> getDataModel(IModel<SelectableBean<RoleAnalysisSessionType>> iModel) {
+                        return null;
+                    }
+
+                    @Override
+                    public void populateItem(
+                            Item<ICellPopulator<SelectableBean<RoleAnalysisSessionType>>> cellItem,
+                            String componentId,
+                            IModel<SelectableBean<RoleAnalysisSessionType>> rowModel) {
+
+                        Task task = getPageBase().createSimpleTask(OP_UPDATE_STATUS);
+                        RoleAnalysisSessionType session = rowModel.getObject().getValue();
+                        OperationResult result = task.getResult();
+
+                        RoleAnalysisChannelMode channelMode = RoleAnalysisChannelMode.CLUSTERING;
+                        RoleAnalysisService roleAnalysisService = getPageBase().getRoleAnalysisService();
+                        String stateString = roleAnalysisService.recomputeAndResolveSessionOpStatus(
+                                session.asPrismObject(), channelMode,
+                                result, task);
+
+                        List<OperationExecutionType> operationExecution = session.getOperationExecution();
+                        PrismObject<TaskType> taskObject = roleAnalysisService.resolveTaskObject(operationExecution, channelMode, task, result);
+                        String taskOid = null;
+                        if (taskObject != null && taskObject.getOid() != null) {
+                            taskOid = taskObject.getOid();
+                        }
+
+                        AjaxLinkPanel ajaxLinkPanel = getTaskLinkComponents(componentId, taskOid, stateString);
+                        cellItem.add(ajaxLinkPanel);
+                    }
+
+                    @NotNull
+                    private AjaxLinkPanel getTaskLinkComponents(String componentId, String taskOid, String stateString) {
+                        AjaxLinkPanel ajaxLinkPanel = new AjaxLinkPanel(componentId, Model.of(stateString)) {
+                            @Override
+                            public boolean isEnabled() {
+                                return taskOid != null;
+                            }
+
+                            @Override
+                            public void onClick(AjaxRequestTarget target) {
+                                super.onClick(target);
+                                if (taskOid != null) {
+                                    DetailsPageUtil.dispatchToObjectDetailsPage(TaskType.class, taskOid,
+                                            this, true);
+                                }
+                            }
+                        };
+                        ajaxLinkPanel.setOutputMarkupId(true);
+                        return ajaxLinkPanel;
+                    }
                 };
                 columns.add(column);
 

@@ -9,7 +9,7 @@ package com.evolveum.midpoint.web.boot;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.Collections;
+import java.util.*;
 
 import org.apache.catalina.Context;
 import org.apache.catalina.Manager;
@@ -119,6 +119,7 @@ public class MidPointSpringApplication extends AbstractSpringBootApplication {
 
         } else {
             try {
+                MidPointJarSignatureChecker.setupJarSignature();
                 applicationContext = configureApplication(new SpringApplicationBuilder()).run(args);
             } catch (Throwable e) {
                 reportFatalErrorToStdErr(e);
@@ -234,7 +235,9 @@ public class MidPointSpringApplication extends AbstractSpringBootApplication {
             serverFactory.addErrorPages(new ErrorPage(HttpStatus.GONE, "/error/410"));
             serverFactory.addErrorPages(new ErrorPage(HttpStatus.INTERNAL_SERVER_ERROR, "/error"));
 
-            Session session = new Session();
+            // We should create new session object, but rather use existing (merged configuration
+            // Session session = new Session();
+            Session session = serverFactory.getSession();
             session.setTimeout(sessionTimeout);
             serverFactory.setSession(session);
 

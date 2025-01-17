@@ -632,6 +632,8 @@ public interface RepositoryService extends OrgTreeEvaluator, CaseSupportMixin, A
      * . To be used only for the new (native) repository.
      * . Currently, there is no "return unused identifiers" method. We assume the space of CIDs is huge.
      * We assume that the allocated identifiers will be used in majority of the cases.
+     *
+     * @throws ObjectNotFoundException If object is not found, exception is recorded as handled error.
      */
     <T extends ObjectType> @NotNull Collection<Long> allocateContainerIdentifiers(
             @NotNull Class<T> type,
@@ -656,7 +658,7 @@ public interface RepositoryService extends OrgTreeEvaluator, CaseSupportMixin, A
      * Provide repository run-time configuration and diagnostic information.
      * May execute diagnostic query on the database.
      */
-    RepositoryDiag getRepositoryDiag();
+    @NotNull RepositoryDiag getRepositoryDiag();
 
     /**
      * Returns short type identifier of the repository implementation.
@@ -668,6 +670,9 @@ public interface RepositoryService extends OrgTreeEvaluator, CaseSupportMixin, A
     default boolean isNative() {
         return getRepositoryType().equals("Native");
     }
+
+    /** Is this a generic repository implementation running over anything other than H2? */
+    boolean isGenericNonH2();
 
     /** Returns `true` if the given object type is supported. */
     boolean supports(@NotNull Class<? extends ObjectType> type);

@@ -4430,7 +4430,8 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
 
     @Override
     public OperationResult testResource(@NotNull String oid, @NotNull Task task, @NotNull OperationResult result)
-            throws ObjectNotFoundException, SchemaException, ConfigurationException {
+            throws ObjectNotFoundException, SchemaException, ConfigurationException, SecurityViolationException,
+            ExpressionEvaluationException, CommunicationException {
         throw new UnsupportedOperationException("'Test resource' operation is not available here");
     }
 
@@ -4453,5 +4454,21 @@ public abstract class AbstractIntegrationTest extends AbstractSpringTest
 
     protected ConfigurationItemOrigin testOrigin() {
         return ConfigurationItemOrigin.generated(); // to be considered safe by the expression profile manager
+    }
+
+    protected PrismPropertyValue<?> constBasedValue(String value) {
+        var constExpressionEvaluator = new ConstExpressionEvaluatorType();
+        constExpressionEvaluator.setValue(value);
+
+        var ppv = prismContext.itemFactory().createPropertyValue();
+        ppv.setExpression(
+                new ExpressionWrapper(
+                        SchemaConstantsGenerated.C_EXPRESSION,
+                        new ExpressionType()
+                                .expressionEvaluator(new JAXBElement<>(
+                                        SchemaConstantsGenerated.C_CONST,
+                                        ConstExpressionEvaluatorType.class,
+                                        constExpressionEvaluator))));
+        return ppv;
     }
 }

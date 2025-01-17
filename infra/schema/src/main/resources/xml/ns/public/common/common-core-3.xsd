@@ -3508,7 +3508,9 @@
                 <xsd:annotation>
                     <xsd:documentation>
                         <p>
-                            Timestamp of last modification of the activation status to the disabled state.
+                            Timestamp of the last modification of the activation status to the disabled state
+                            OR of the last change of the disableReason property.
+
                             Note: This timestamp is used for recording purposes. Changing it will NOT change
                             the activation state.
                         </p>
@@ -4386,7 +4388,6 @@
                     </xsd:documentation>
                     <xsd:appinfo>
                         <a:since>4.6</a:since>
-                        <a:experimental>true</a:experimental>
                         <a:displayName>ItemRefinedDefinitionType.correlator</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
@@ -5112,6 +5113,7 @@
                         Short name of the mapping. Used for debugging purposes.
                     </xsd:documentation>
                     <xsd:appinfo>
+                        <a:displayOrder>110</a:displayOrder>
                         <a:displayName>MappingType.name</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
@@ -5226,6 +5228,7 @@
                         </p>
                     </xsd:documentation>
                     <xsd:appinfo>
+                        <a:displayOrder>120</a:displayOrder>
                         <a:displayName>MappingType.strength</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
@@ -6332,7 +6335,7 @@
                     <!--
                     TODO: Consider renaming, because returnTypeof type QName is used also in expression, which is a mere level above and can be confusing.
                      Also - this seems to do nothing at the moment, it probably ends in ScriptExpressionEvaluationContext#suggestedReturnType and is not used further.
-                     Related Jira: MID-8552
+                     Related issue: MID-8552
                     -->
                     <xsd:element name="returnType" type="tns:ScriptExpressionReturnTypeType" minOccurs="0">
                         <xsd:annotation>
@@ -9104,7 +9107,7 @@
                             <xsd:appinfo>
                                 <a:since>4.6</a:since>
                                 <a:experimental>true</a:experimental>
-                                <a:displayName>ItemRefinedDefinitionType.indexing</a:displayName>
+                                <a:displayName>ObjectTemplateItemDefinitionType.indexing</a:displayName>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -9120,7 +9123,7 @@
                             <xsd:appinfo>
                                 <a:since>4.6</a:since>
                                 <a:experimental>true</a:experimental>
-                                <a:displayName>ItemRefinedDefinitionType.identity</a:displayName>
+                                <a:displayName>ObjectTemplateItemDefinitionType.multiSource</a:displayName>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -9133,7 +9136,7 @@
                             <xsd:appinfo>
                                 <a:since>4.6</a:since>
                                 <a:experimental>true</a:experimental>
-                                <a:displayName>ItemRefinedDefinitionType.correlation</a:displayName>
+                                <a:displayName>ObjectTemplateItemDefinitionType.correlation</a:displayName>
                             </xsd:appinfo>
                         </xsd:annotation>
                     </xsd:element>
@@ -9237,6 +9240,7 @@
                                     If present, it overrides any default evaluation phases.
                                 </xsd:documentation>
                                 <xsd:appinfo>
+                                    <a:displayOrder>130</a:displayOrder>
                                     <a:displayName>InboundMappingType.use</a:displayName>
                                     <a:since>4.8</a:since>
                                 </xsd:appinfo>

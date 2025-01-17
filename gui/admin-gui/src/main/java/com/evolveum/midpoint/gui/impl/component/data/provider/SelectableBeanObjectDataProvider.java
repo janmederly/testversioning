@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
+
 import org.apache.wicket.Component;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.Model;
@@ -88,7 +90,8 @@ public class SelectableBeanObjectDataProvider<O extends ObjectType> extends Sele
     protected Integer countObjects(Class<O> type, ObjectQuery query,
             Collection<SelectorOptions<GetOperationOptions>> currentOptions,
             Task task, OperationResult result) throws CommonException {
-        return getModelService().countObjects(type, getQuery(), currentOptions, task, result);
+        return getModelService().countObjects(
+                type, getQuery(), currentOptions, task, result);
     }
 
     protected boolean isMemberPanel() {

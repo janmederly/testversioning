@@ -6,6 +6,8 @@
  */
 
 import Sparkline from "sparklines";
+import { TempusDominus } from '@eonasdan/tempus-dominus';
+import { DateTime } from '@eonasdan/tempus-dominus/dist/js/tempus-dominus.js';
 
 export default class MidPointTheme {
 
@@ -156,6 +158,15 @@ export default class MidPointTheme {
             });
         });
     }
+
+initDateTimePicker(containerId, configuration) {
+    new TempusDominus(containerId, configuration);
+}
+
+createCurrentDateForDatePicker(containerId, configuration) {
+    const date = new Date();
+    return new DateTime(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
 
 breakLongerTextInTableCell(cellId) {
     $("#" + cellId).css("word-break", function (index, origValue) {
@@ -600,9 +611,9 @@ breakLongerTextInTableCell(cellId) {
 
         function zoomIn(rectBefore, x, y) {
             console.log('Zooming in');
-            scale += 0.03;
+            scale += 0.01;
 
-            let prevScale = scale - 0.1;
+            let prevScale = scale - 0.01;
             let scaleFactor = scale / prevScale;
 
             let deltaX = (x / 100) * rectBefore.width * (scaleFactor - 1);

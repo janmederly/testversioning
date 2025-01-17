@@ -18,7 +18,9 @@ import com.evolveum.midpoint.model.api.authentication.GuiProfiledPrincipal;
 import com.evolveum.midpoint.prism.*;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.prism.path.ItemPath;
+import com.evolveum.midpoint.prism.query.ObjectFilter;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
+import com.evolveum.midpoint.repo.common.expression.ExpressionUtil;
 import com.evolveum.midpoint.schema.*;
 import com.evolveum.midpoint.schema.constants.ObjectTypes;
 import com.evolveum.midpoint.schema.constants.SchemaConstants;
@@ -29,6 +31,7 @@ import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.task.api.TaskManager;
 import com.evolveum.midpoint.util.MiscUtil;
 import com.evolveum.midpoint.util.QNameUtil;
+import com.evolveum.midpoint.util.SingleLocalizableMessage;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.util.logging.LoggingUtils;
 import com.evolveum.midpoint.util.logging.Trace;
@@ -136,15 +139,29 @@ public class WebModelServiceUtils {
         return loadObject(definition.getCompileTimeClass(), reference.getOid(), createNoFetchCollection(), page, task, result);
     }
 
-    public static <O extends ObjectType> List<ObjectReferenceType> createObjectReferenceList(Class<O> type, PageBase page, Map<String, String> referenceMap) {
-        referenceMap.clear();
-
+    public static <O extends ObjectType> List<ObjectReferenceType> createObjectReferenceListForType(Class<O> type, PageBase page,
+            Map<String, String> referenceMap) {
         OperationResult result = new OperationResult(OPERATION_LOAD_OBJECT_REFS);
-//        Task task = page.createSimpleTask(OPERATION_LOAD_PASSWORD_POLICIES);
-
+        List<PrismObject<O>> objects = new ArrayList<>();
         try {
-            List<PrismObject<O>> objects = searchObjects(type, null, result, page);
+            objects = searchObjects(type, null, result, page);
             result.recomputeStatus();
+            return createObjectReferenceListForObjects(page, objects, referenceMap);
+        } catch (Exception e) {
+            result.recordFatalError(page.createStringResource("WebModelUtils.couldntLoadPasswordPolicies").getString(), e);
+            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't load password policies", e);
+        }
+        return null;
+        // TODO - show error somehow
+        // if(!result.isSuccess()){
+        //    getPageBase().showResult(result);
+        // }
+    }
+
+    public static <O extends ObjectType> List<ObjectReferenceType> createObjectReferenceListForObjects(PageBase page,
+            List<PrismObject<O>> objects, Map<String, String> referenceMap) {
+            referenceMap.clear();
+
             List<ObjectReferenceType> references = new ArrayList<>();
 
             for (PrismObject<O> object : objects) {
@@ -152,20 +169,8 @@ public class WebModelServiceUtils {
                 ObjectReferenceType ref = ObjectTypeUtil.createObjectRef(object, page.getPrismContext());
                 ref.setTargetName(null);  // this fixes MID-5878. the problem is, that ORT(type, targetName, oid) is not equal to ORT(type, oid)
                 references.add(ref);
-
             }
             return references;
-        } catch (Exception e) {
-            result.recordFatalError(page.createStringResource("WebModelUtils.couldntLoadPasswordPolicies").getString(), e);
-            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't load password policies", e);
-        }
-
-        // TODO - show error somehow
-        // if(!result.isSuccess()){
-        //    getPageBase().showResult(result);
-        // }
-
-        return null;
     }
 
     public static <O extends ObjectType> PrismObject<O> loadObject(PrismReferenceValue objectRef, QName expectedTargetType, PageBase pageBase, Task task, OperationResult result) {
@@ -347,8 +352,7 @@ public class WebModelServiceUtils {
                     .distinct(true)
                     .build();
             count = page.getModelService().countObjects(type, query, options, task, parentResult);
-        } catch (SchemaException | ObjectNotFoundException | SecurityViolationException
-                | ConfigurationException | CommunicationException | ExpressionEvaluationException ex) {
+        } catch (CommonException ex) {
             parentResult.recordFatalError(page.createStringResource("WebModelUtils.couldntCountObjects").getString(), ex);
             LoggingUtils.logUnexpectedException(LOGGER, "Couldn't count objects", ex);
         }
@@ -434,11 +438,11 @@ public class WebModelServiceUtils {
 
             page.getModelService().executeChanges(deltas, options, task, result);
         } catch (Exception ex) {
+            subResult.recordFatalError(ex.getMessage());
+            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't save object", ex);
             if (ex instanceof CommonException) {
                 subResult.setUserFriendlyMessage(((CommonException) ex).getUserFriendlyMessage());
             }
-            subResult.recordFatalError(ex.getMessage());
-            LoggingUtils.logUnexpectedException(LOGGER, "Couldn't save object", ex);
         } finally {
             subResult.computeStatus();
         }
@@ -486,6 +490,19 @@ public class WebModelServiceUtils {
         LOGGER.debug("Loaded ({}) with result {}", containers.size(), subResult);
 
         return containers;
+    }
+
+    public static void checkExpressionInFilter(ObjectFilter filter) throws ExpressionEvaluationException {
+        if (filter == null) {
+            return;
+        }
+        if (ExpressionUtil.hasExpressionsAndHasNoValue(filter)) {
+            throw new ExpressionEvaluationException(
+                    new SingleLocalizableMessage(
+                            "WebModelServiceUtils.message.error.unsupportedExpression",
+                            new Object[]{},
+                            "Filter contains unsupported expression. Filter: " + filter));
+        }
     }
 
     public static <C extends Containerable> int countContainers(Class<C> type, ObjectQuery query,

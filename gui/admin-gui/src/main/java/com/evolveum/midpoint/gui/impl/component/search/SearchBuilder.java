@@ -205,7 +205,6 @@ public class SearchBuilder<C extends Serializable> {
                 && !isViewForDashboard && !isPreview) {
             Date todayDate = Date.from(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant());
             timestampItem.setSingleDate(MiscUtil.asXMLGregorianCalendar(todayDate));
-            timestampItem.setInterval(true);
         }
     }
 
@@ -256,6 +255,9 @@ public class SearchBuilder<C extends Serializable> {
         AxiomQueryWrapper axiomWrapper = new AxiomQueryWrapper(getDefinitionOverride());
         AdvancedQueryWrapper advancedQueryWrapper = new AdvancedQueryWrapper(null);
         FulltextQueryWrapper fulltextQueryWrapper = new FulltextQueryWrapper(null);
+        if (AssignmentType.class.equals(type)) {
+            fulltextQueryWrapper = new AssignmentFulltextQueryWrapper(null);
+        }
 
         ObjectTypeSearchItemWrapper objectTypeSearchItemWrapper = new ObjectTypeSearchItemWrapper(mergedConfig.getObjectTypeConfiguration());
         objectTypeSearchItemWrapper.setAllowAllTypesSearch(isAllowedAllTypesSearch());
@@ -319,8 +321,8 @@ public class SearchBuilder<C extends Serializable> {
 
     private void sortItems(BasicQueryWrapper basicSearchWrapper) {
         basicSearchWrapper.getItemsList().sort((i1, i2) -> String.CASE_INSENSITIVE_ORDER.compare(
-                StringUtils.isEmpty(i1.getName()) ? "" : PageBase.createStringResourceStatic(i1.getName()).getString(),
-                StringUtils.isEmpty(i2.getName()) ? "" : PageBase.createStringResourceStatic(i2.getName()).getString()));
+                StringUtils.isEmpty(i1.getName().getObject()) ? "" : PageBase.createStringResourceStatic(i1.getName().getObject()).getString(),
+                StringUtils.isEmpty(i2.getName().getObject()) ? "" : PageBase.createStringResourceStatic(i2.getName().getObject()).getString()));
 
         basicSearchWrapper.getItemsList().sort(Comparator.comparing(i -> i instanceof PropertySearchItemWrapper));
     }

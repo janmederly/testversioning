@@ -115,6 +115,27 @@ The mugs of all captains should come with owner's name on it, so no scurvy seado
 
 ****
 
+[TIP]
+.Assignments and inducements vs. direct account modifications
+====
+Setting an attribute using an assignment or inducement is very different from just setting the attribute value directly on the account.
+As this is an assignment/inducement, this specification of the attribute specifies a _policy_.
+I.e. it specifies that the account _should_ always have this value.
+Therefore, if midPoint detects that the value of source attribute has changed (e.g. during a reconciliation) then midPoint will try to fix the situation and will set the attribute to the correct value.
+
+On the other hand if an attribute value is changed directly on the account (e.g. using a midPoint GUI) then the initial result will be the same: the account attribute is changed.
+But if the value is not specified in assignment it will *not* be part of the policy.
+And if someone changes the account attribute value later the midPoint will *not* set it back.
+This is the primary difference:
+
+* Assignments and inducements are policies.
+MidPoint will try to correct the situation when it has a chance (and reason) to do so.
+
+* Direct account modifications just change the reality.
+MidPoint will *not* try to re-apply them later.
+
+====
+
 xref:/midpoint/reference/expressions/[Mappings and expressions] are used to define dynamic implied account attributes.
 xref:/midpoint/reference/concepts/item-path/[Simple paths] are perhaps the most easy to use and most useful in common situations.
 There are also xref:/midpoint/reference/expressions/expressions/script/[scripting expressions] for more complex cases.
@@ -215,8 +236,7 @@ The XML role definition is as follows:
                      <expression>
                         <associationTargetSearch>
                             <filter>
-                                <q:path>attributes/ri:name</q:path>
-                                <q:value>captains</q:value>
+                                <q:text>attributes/name = "captains"</q:text>
                             </filter>
                         </associationTargetSearch>
                  </outbound>
@@ -297,10 +317,6 @@ See xref:/midpoint/reference/roles-policies/roles-services-and-orgs/['Roles, Ser
 See xref:/midpoint/reference/roles-policies/metaroles/gensync/['Roles, Metaroles and Generic Synchronization']
 
 == Idempotent Roles
-
-++++
-{% include since.html since="3.6" %}
-++++
 
 If a role is marked as idempotent then midPoint assumes that the evaluation of this role gives the same results regardless of its position in the assignment/inducement hierarchy.
 I.e. evaluation of this roles does not depend on the assignment parameters of focus or any of the preceding roles.

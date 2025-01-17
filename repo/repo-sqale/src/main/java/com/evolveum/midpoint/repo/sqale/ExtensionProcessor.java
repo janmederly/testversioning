@@ -26,6 +26,8 @@ import com.evolveum.midpoint.util.QNameUtil;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.util.exception.SystemException;
 
+import static com.evolveum.midpoint.repo.sqale.jsonb.JsonbUtils.toRealValue;
+
 public class ExtensionProcessor {
 
     private final SqaleRepoContext repositoryContext;
@@ -52,9 +54,9 @@ public class ExtensionProcessor {
                 }
 
                 Object value = extItemValue(item, extItemInfo);
-
-                extMap.put(extItemInfo.getId(), value);
-
+                if (value != null) {
+                    extMap.put(extItemInfo.getId(), value);
+                }
                 // We may need to add also single value index, if definition is dynamic;
                 // see additionalSingleValueIndexNeeded() javadoc for more information.
                 if (additionalSingleValueIndexNeeded(item, extItemInfo)) {
@@ -123,6 +125,7 @@ public class ExtensionProcessor {
         return info;
     }
 
+    @Nullable
     public Object extItemValue(Item<?, ?> item, ExtItemInfo extItemInfo) {
         MExtItem extItem = extItemInfo.item;
         if (extItem.cardinality == MExtItemCardinality.ARRAY) {
@@ -136,7 +139,11 @@ public class ExtensionProcessor {
         }
     }
 
+    @Nullable
     private Object convertExtItemValue(Object realValue, ExtItemInfo extItemInfo) {
+        if (realValue == null) {
+            return null;
+        }
         checkRealValueType(realValue, extItemInfo.item);
         if (realValue instanceof String
                 || realValue instanceof Number
@@ -183,7 +190,7 @@ public class ExtensionProcessor {
         Class<?> realValueType = ExtUtils.getRealValueClass(extItemInfo.valueType);
         if (realValueType != null && !realValueType.isAssignableFrom(realValue.getClass())) {
             throw new IllegalArgumentException("Incorrect real value type '"
-                    + realValue.getClass().getName() + "' for item " + extItemInfo.itemName);
+                    + realValue.getClass().getName() + "' for item " + extItemInfo.itemName + "expecting " + realValueType.getName());
         }
     }
 
@@ -229,16 +236,19 @@ public class ExtensionProcessor {
                 // variants are written in JSONB - but both variants are only written when single value is present
                 // and definition is not provided. If the multi-value is changed later the single-value variant
                 // is removed from JSONB (see code in ExtensionItemDeltaProcessor).
-                switch (mapping.cardinality) {
-                    case SCALAR:
-                        item.setRealValue(attribute.getValue());
-                        break;
-                    case ARRAY:
-                        List<?> value = (List<?>) attribute.getValue();
-                        item.setRealValues(value.toArray());
-                        break;
-                    default:
-                        throw new IllegalStateException("");
+                // Do not overwrite values from full object
+                if (item.isEmpty()) {
+                    switch (mapping.cardinality) {
+                        case SCALAR:
+                            item.setRealValue(toRealValue(attribute.getValue(), definition.getTypeName(), repositoryContext));
+                            break;
+                        case ARRAY:
+                            List<?> value = (List<?>) attribute.getValue();
+                            item.setRealValues(value.stream().map(v -> toRealValue(v, definition.getTypeName(), repositoryContext)).toArray());
+                            break;
+                        default:
+                            throw new IllegalStateException("");
+                    }
                 }
                 if (item.isIncomplete() && (item.getDefinition() == null || !item.getDefinition().isIndexOnly())) {
                     // Item was not fully serialized / probably indexOnly item.

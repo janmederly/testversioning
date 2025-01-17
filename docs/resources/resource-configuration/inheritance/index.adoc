@@ -67,14 +67,18 @@ The super-resource is defined by including the `super` item in the child resourc
 ----
 
 The referenced super-resource may or may not be a fully-functional one. It may well be so that it is only a template,
-lacking key information necessary to connect to it, obtain its schema and capabilities, and so on. Such resources have
-to be marked as `abstract`, to avoid being directly used by midPoint.
+lacking key information necessary to connect to it, obtain its schema and capabilities, and so on. There are two relevant properties here:
 
-.Listing 2. The super (parent) resource, marked as abstract
+* If `template` is set to `true`, it tells midPoint that this is in fact a template that is to be presented to users in Resource Wizard as a starting point for creation of new resources.
+* If `abstract` is set to `true`, it tells midPoint to avoid using this resource directly, because it lacks the necessary information needed e.g. to connect to it.
+The templates are usually abstract resources.
+
+.Listing 2. The super (parent) resource, marked as an abstract template
 [source,xml]
 ----
 <resource oid="873a5483-ded8-4607-ac06-ea5ae92ce755">
     <name>GenericAD</name>
+    <template>true</template>
     <abstract>true</abstract>
     ...
 </resource>
@@ -169,6 +173,45 @@ For example, an authorization like the following one can be used:
 
 A holder of the above authorization can add and modify resource definition objects, except for their `super` item.
 So, any resource added must not have that item present; and any modification to existing resource must not manipulate `super` item as well.
+
+== Tips and Tricks
+
+=== Disabling Synchronization Reaction
+
+If you need to disable a specific synchronization reaction present in the parent resource, you can override its `lifecycleState` property to a value that effectively disables it (in the child resource).
+A good candidate is the value of `draft`.
+
+So, for example, if you have a reaction like this:
+
+.Listing 5. A synchronization reaction to be disabled (in parent resource)
+[source,xml]
+----
+<synchronization>
+    ...
+    <reaction>
+        <name>new-accounts</name>
+        <situation>unmatched</situation>
+        <actions>
+            <addFocus/>
+        </actions>
+    </reaction>
+</synchronization>
+----
+
+You can disable it in this way:
+
+.Listing 6. Disabling a synchronization reaction in a child resource
+[source,xml]
+----
+<synchronization>
+    <reaction>
+        <name>new-accounts</name>
+        <lifecycleState>draft</lifecycleState>
+    </reaction>
+</synchronization>
+----
+
+The prerequisite is that the reaction is named, so that it can be referred to in the child resource.
 
 == Addendum: Configuration Merging Algorithm Details
 

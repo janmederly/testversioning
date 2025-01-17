@@ -11,6 +11,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
+
+import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.ajax.AjaxChannel;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -76,6 +80,7 @@ public class PasswordPanel extends InputPanel {
     private final PrismObject<? extends FocusType> prismObject;
     private final IModel<ProtectedStringType> passwordModel;
     protected boolean isReadOnly;
+    private boolean shouldTrimInput = false;
 
     public PasswordPanel(String id, IModel<ProtectedStringType> passwordModel) {
         this(id, passwordModel, false, passwordModel == null || passwordModel.getObject() == null);
@@ -110,7 +115,7 @@ public class PasswordPanel extends InputPanel {
         setOutputMarkupId(true);
 
         final WebMarkupContainer inputContainer = new WebMarkupContainer(ID_INPUT_CONTAINER);
-        inputContainer.add(new VisibleBehaviour(() -> passwordInputVisible));
+        inputContainer.add(new VisibleBehaviour(this::isPasswordInputVisible));
         inputContainer.setOutputMarkupId(true);
         add(inputContainer);
 
@@ -132,18 +137,37 @@ public class PasswordPanel extends InputPanel {
             @Override
             protected void onComponentTag(ComponentTag tag) {
                 super.onComponentTag(tag);
-                tag.remove("value");
+                if (removePasswordValueAttribute()) {
+                    tag.remove("value");
+                }
             }
 
+            @Override
+            protected boolean shouldTrimInput() {
+                return shouldTrimInput;
+            }
+
+
         };
-        password1.add(AttributeAppender.append("onfocus", initPasswordValidation()));
+        if (isPasswordStrengthBarVisible()) {
+            password1.add(AttributeAppender.append("onfocus", initPasswordValidation()));
+        }
         password1.setRequired(false);
         password1.add(new EnableBehaviour(this::canEditPassword));
         password1.setOutputMarkupId(true);
         inputContainer.add(password1);
 
         final PasswordTextField password2 = new SecureModelPasswordTextField(ID_PASSWORD_TWO,
-                new ProtectedStringModel(Model.of(new ProtectedStringType())));
+                new ProtectedStringModel(Model.of(new ProtectedStringType()))) {
+
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected boolean shouldTrimInput() {
+                return shouldTrimInput;
+            }
+
+        };
         password2.setRequired(false);
         password2.setOutputMarkupId(true);
         password2.add(new EnableBehaviour(this::canEditPassword));
@@ -205,6 +229,10 @@ public class PasswordPanel extends InputPanel {
 
         WebComponentUtil.addAjaxOnUpdateBehavior(inputContainer);
 
+    }
+
+    protected boolean isPasswordInputVisible() {
+        return passwordInputVisible || getParentPage().getPrincipalFocus() == null;
     }
 
     private String initPasswordValidation() {
@@ -333,6 +361,10 @@ public class PasswordPanel extends InputPanel {
         return true;
     }
 
+    protected boolean isPasswordStrengthBarVisible() {
+        return true;
+    }
+
     protected void updatePasswordValidation(AjaxRequestTarget target) {
     }
 
@@ -346,5 +378,9 @@ public class PasswordPanel extends InputPanel {
 
     private PageAdminLTE getParentPage() {
         return WebComponentUtil.getPage(PasswordPanel.this, PageAdminLTE.class);
+    }
+
+    protected boolean removePasswordValueAttribute() {
+        return true;
     }
 }

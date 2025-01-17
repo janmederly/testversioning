@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
@@ -34,9 +36,10 @@ import com.evolveum.midpoint.web.component.AjaxSubmitButton;
 import com.evolveum.midpoint.web.component.input.CheckPanel;
 import com.evolveum.midpoint.web.component.prism.InputPanel;
 import com.evolveum.midpoint.web.component.util.VisibleBehaviour;
-import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
 import com.evolveum.midpoint.web.page.admin.configuration.component.EmptyOnBlurAjaxFormUpdatingBehaviour;
 import com.evolveum.midpoint.web.util.InfoTooltipBehavior;
+
+import org.jetbrains.annotations.NotNull;
 
 public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper> extends AbstractSearchItemPanel<S> {
 
@@ -48,7 +51,6 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
     private static final String ID_HELP = "help";
     private static final String ID_REMOVE_BUTTON = "removeButton";
     private static final String ID_CHECK_DISABLE_FIELD = "checkDisable";
-
 
     public SingleSearchItemPanel(String id, IModel<S> model) {
         super(id, model);
@@ -81,7 +83,7 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         Label help = new Label(ID_HELP);
         IModel<String> helpModel = createHelpModel();
         help.add(AttributeModifier.replace("title", createStringResource(helpModel.getObject() != null ? helpModel.getObject() : "")));
-        help.add(new InfoTooltipBehavior(){
+        help.add(new InfoTooltipBehavior() {
             @Override
             public String getDataPlacement() {
                 return "left";
@@ -143,7 +145,7 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         searchItemContainer.add(removeButton);
     }
 
-    protected boolean isFieldEnabled (){
+    protected boolean isFieldEnabled() {
         return getModelObject().isEnabled();
     }
 
@@ -151,11 +153,11 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
         return (WebMarkupContainer) get(ID_SEARCH_ITEM_CONTAINER);
     }
 
-    private IModel<String> createHelpModel(){
+    private IModel<String> createHelpModel() {
         if (getModelObject() == null) {
             return () -> "";
         }
-        return Model.of(getModelObject().getHelp());
+        return getModelObject().getHelp();
     }
 
     protected abstract Component initSearchItemField(String id);
@@ -175,19 +177,20 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
 
     protected IModel<String> createLabelModel() {
         if (getModelObject() == null) {
-            return  () -> "";
+            return () -> "";
         }
-        return StringUtils.isNotEmpty(getModelObject().getName()) ? createStringResource(getModelObject().getName()) : Model.of("");
+        @NotNull IModel<String> nameModel = getModelObject().getName();
+        return StringUtils.isNotEmpty(nameModel.getObject()) ? nameModel : Model.of("");
     }
 
     private IModel<String> createTitleModel() {
         if (getModelObject() == null) {
             return () -> "";
         }
-        return Model.of(getModelObject().getTitle());
+        return getModelObject().getTitle();
     }
 
-    protected void searchPerformed(AjaxRequestTarget target){
+    protected void searchPerformed(AjaxRequestTarget target) {
         SearchPanel panel = findParent(SearchPanel.class);
         panel.searchPerformed(target);
     }
@@ -237,7 +240,7 @@ public abstract class SingleSearchItemPanel<S extends AbstractSearchItemWrapper>
     protected IModel<List<DisplayableValue<?>>> createEnumChoices(Class<? extends Enum> inputClass) {
         Enum[] enumConstants = inputClass.getEnumConstants();
         List<DisplayableValue<?>> list = new ArrayList<>();
-        for(int i = 0; i < enumConstants.length; i++){
+        for (int i = 0; i < enumConstants.length; i++) {
             list.add(new SearchValue<>(enumConstants[i], getString(enumConstants[i])));
         }
         return Model.ofList(list);

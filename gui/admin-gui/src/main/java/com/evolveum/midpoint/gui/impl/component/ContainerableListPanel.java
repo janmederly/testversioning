@@ -6,9 +6,15 @@
  */
 package com.evolveum.midpoint.gui.impl.component;
 
+import java.io.Serial;
 import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
+
+import com.evolveum.midpoint.prism.impl.query.ObjectPagingImpl;
+import com.evolveum.midpoint.schema.util.ObjectQueryUtil;
 
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -159,7 +165,7 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         }
 
         String searchByName = getSearchByNameParameterValue();
-        return searchByName == null || !search.searchByNameEquals(searchByName);
+        return searchByName == null || search.searchByNameEquals(searchByName);
     }
 
     private LoadableDetachableModel<Search<C>> createSearchModel() {
@@ -176,8 +182,12 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         PageStorage storage = getPageStorage();
         Search<C> search = loadSearch(storage);
 
+        //is this correct place for loading paging?
+        ObjectPaging paging = loadPaging(storage);
+
         if (storage != null && !isPreview()) {
             storage.setSearch(search);
+            storage.setPaging(paging);
         }
         getPageBase().getPageParameters().remove(PageBase.PARAMETER_SEARCH_BY_NAME);
         return search;
@@ -193,6 +203,30 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
             search = createSearch();
         }
         return search;
+    }
+
+    private ObjectPaging loadPaging(PageStorage storage) {
+        ObjectPaging paging = null;
+        if (storage != null) {
+            paging = storage.getPaging();
+        }
+        if (paging == null) {
+            paging = createPaging();
+        }
+        return paging;
+    }
+
+    private ObjectPaging createPaging() {
+        CompiledObjectCollectionView view = getObjectCollectionView();
+        ObjectPaging paging = null;
+        if (view != null) {
+            paging = ObjectQueryUtil.convertToObjectPaging(view.getPaging(), PrismContext.get());
+        }
+        if (paging == null) {
+            paging = ObjectPagingImpl.createEmptyPaging();
+            paging.setMaxSize(getDefaultPageSize());
+        }
+        return paging;
     }
 
     protected String getSearchByNameParameterValue() {
@@ -267,7 +301,7 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         setUseCounting(provider);
         BoxedTablePanel<PO> itemTable = new BoxedTablePanel<>(ID_ITEMS_TABLE,
                 provider, columns, getTableId()) {
-            private static final long serialVersionUID = 1L;
+            @Serial private static final long serialVersionUID = 1L;
 
             @Override
             protected Component createHeader(String headerId) {
@@ -325,6 +359,21 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
             protected boolean isPagingVisible() {
                 return ContainerableListPanel.this.isPagingVisible();
             }
+
+            @Override
+            protected Integer getConfiguredPageSize() {
+                return getViewPagingMaxSize();
+            }
+
+            @Override
+            protected void savePagingNewValue(Integer newPageSize) {
+                setPagingSizeNewValue(newPageSize);
+            }
+
+            @Override
+            protected void onPagingChanged(ObjectPaging paging) {
+                ContainerableListPanel.this.onPagingChanged(paging);
+            }
         };
         itemTable.setOutputMarkupId(true);
 
@@ -333,17 +382,46 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         if (getPageStorage() != null) {
             ObjectPaging pageStorage = getPageStorage().getPaging();
             if (pageStorage != null) {
-                itemTable.setCurrentPage(pageStorage);
+                itemTable.setCurrentPageAndSort(pageStorage);
             }
         }
 
         return itemTable;
     }
 
+    private void onPagingChanged(ObjectPaging paging) {
+        PageStorage storage = getPageStorage();
+        if (storage == null) {
+            return;
+        }
+
+        storage.setPaging(paging);
+    }
+
+    private void setPagingSizeNewValue(Integer newValue) {
+        PageStorage pageStorage = getPageStorage();
+        if (pageStorage == null) {
+            return;
+        }
+        ObjectPaging paging = pageStorage.getPaging();
+        if (paging == null) {
+            return;
+        }
+        paging.setMaxSize(newValue);
+    }
+
     private int getDefaultPageSize() {
         if (isPreview()) {
             Integer previewSize = ((PreviewContainerPanelConfigurationType) config).getPreviewSize();
             return Objects.requireNonNullElse(previewSize, UserProfileStorage.DEFAULT_DASHBOARD_PAGING_SIZE);
+        }
+
+        PageStorage storage = getPageStorage();
+        if (storage != null) {
+            ObjectPaging paging = storage.getPaging();
+            if (paging != null && paging.getMaxSize() != null) {
+                return paging.getMaxSize();
+            }
         }
 
         Integer collectionViewPagingSize = getViewPagingMaxSize();
@@ -583,7 +661,15 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         DisplayType displayType = customColumn.getDisplay();
         PolyStringType label = displayType != null ? displayType.getLabel() : null;
         if (label != null) {
-            return createStringResource(label);
+            if (label.getTranslation() == null || StringUtils.isEmpty(label.getTranslation().getKey())) {
+                return createStringResource(LocalizationUtil.translatePolyString(label));
+            }
+            return new LoadableDetachableModel<>() {
+                @Override
+                protected String load() {
+                    return LocalizationUtil.translatePolyString(label);
+                }
+            };
         }
 
         return createStringResource(getItemDisplayName(customColumn));
@@ -945,7 +1031,7 @@ public abstract class ContainerableListPanel<C extends Serializable, PO extends 
         table.getDataTable().getColumns().addAll(createColumns());
         table.addOrReplace(initSearch("header"));
         resetSearchModel();
-        table.setCurrentPage(null);
+        table.setCurrentPageAndSort(null);
     }
 
     public void resetSearchModel() {

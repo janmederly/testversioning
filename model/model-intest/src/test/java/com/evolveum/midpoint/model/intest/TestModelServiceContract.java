@@ -9,6 +9,8 @@ package com.evolveum.midpoint.model.intest;
 import static com.evolveum.midpoint.model.test.CommonInitialObjects.*;
 import static com.evolveum.midpoint.schema.GetOperationOptions.createRawCollection;
 
+import static com.evolveum.midpoint.schema.GetOperationOptions.createNoFetchCollection;
+
 import static java.util.Collections.singleton;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.AssertJUnit.*;
@@ -24,6 +26,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import com.evolveum.midpoint.prism.testing.PrismAsserts2;
+
 import jakarta.xml.bind.JAXBElement;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
@@ -452,7 +457,7 @@ public class TestModelServiceContract extends AbstractInitializedModelIntegratio
         OperationResult result = task.getResult();
         preTestCleanup(AssignmentPolicyEnforcementType.POSITIVE);
 
-        Collection<SelectorOptions<GetOperationOptions>> options = GetOperationOptions.createNoFetchCollection();
+        Collection<SelectorOptions<GetOperationOptions>> options = createNoFetchCollection();
 
         when();
         PrismObject<ShadowType> account = modelService.getObject(ShadowType.class, accountJackOid, options, task, result);
@@ -1515,7 +1520,10 @@ public class TestModelServiceContract extends AbstractInitializedModelIntegratio
         preTestCleanup(AssignmentPolicyEnforcementType.FULL);
 
         when();
-        executeChanges(createJacksAccountModifyDelta(), null, task, result);
+        // Creating empty partial processing option is the same as having none. This code is here just to test MID-9477.
+        var options = ModelExecuteOptions.create()
+                .partialProcessing(new PartialProcessingOptionsType());
+        executeChanges(createJacksAccountModifyDelta(), options, task, result);
 
         then();
         assertSuccess(result);
@@ -4053,6 +4061,126 @@ public class TestModelServiceContract extends AbstractInitializedModelIntegratio
         displayDumpable("Audit", dummyAuditService);
         dummyAuditService.assertRecords(2 + accessesMetadataAuditOverhead(1));
         dummyAuditService.assertSimpleRecordSanity();
+    }
+
+    /** The clockwork should be able to unlink also dead shadows. MID-9668. */
+    @Test
+    public void test780UnlinkDeadShadow() throws Exception {
+        testUnlinkOrDeleteDeadShadow(false);
+    }
+
+    /** The clockwork should be able to delete also dead shadows. MID-9668. */
+    @Test
+    public void test785DeleteDeadShadow() throws Exception {
+        testUnlinkOrDeleteDeadShadow(true);
+    }
+
+    private void testUnlinkOrDeleteDeadShadow(boolean delete) throws Exception {
+        var task = getTestTask();
+        var result = task.getResult();
+        var userName = getTestNameShort();
+
+        given("a user with a dead shadow");
+        var user = new UserType()
+                .name(userName)
+                .assignment(new AssignmentType()
+                        .construction(new ConstructionType()
+                                .resourceRef(RESOURCE_DUMMY_OID, ResourceType.COMPLEX_TYPE)));
+        var userOid = addObject(user, task, result);
+
+        dummyResourceCtl.deleteAccount(userName);
+        reconcileUser(userOid, task, result);
+
+        var deadLinkRefVal = assertUserBefore(userOid)
+                .assertLinks(1, 1)
+                .links()
+                .singleDead()
+                .getRefVal();
+
+        PrismObject<ShadowType> shadowToDelete;
+        if (delete) {
+            shadowToDelete = provisioningService.getObject(
+                    ShadowType.class,
+                    deadLinkRefVal.getOid(),
+                    createNoFetchCollection(),
+                    task, result);
+        } else {
+            shadowToDelete = null;
+        }
+        deadLinkRefVal.setObject(shadowToDelete);
+
+        when("the dead shadow is " + (delete ? "deleted" : "unlinked"));
+        executeChanges(
+                deltaFor(UserType.class)
+                        .item(UserType.F_LINK_REF)
+                        .delete(deadLinkRefVal.clone())
+                        .asObjectDelta(userOid),
+                null, task, result);
+
+        then("the dead linkRef is not there anymore");
+        assertUserAfter(userOid)
+                .assertLinks(1, 0);
+
+        and("the shadow still exists (even when unlinked - because of the dead shadow retention by provisioning");
+        assertRepoShadow(deadLinkRefVal.getOid())
+                .display()
+                .assertDead();
+    }
+
+    /**
+     * Tests whether we can set multivalued const connector property.
+     *
+     * MID-7918
+     */
+    @Test
+    public void test990SettingMultivaluedConstProperties() throws Exception {
+        var task = getTestTask();
+        var result = task.getResult();
+        var constPpv1 = constBasedValue("const1");
+        var constPpv2 = constBasedValue("const2");
+        var def = prismContext.definitionFactory().createPropertyDefinition(
+                DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME, DOMUtil.XSD_STRING);
+        def.toMutable().setMinOccurs(0);
+        def.toMutable().setMaxOccurs(-1);
+
+        when("multiple const values are added to a connector property");
+        executeChanges(
+                deltaFor(ResourceType.class)
+                        .item(DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_PATH, def)
+                        .add(constPpv1.clone(), constPpv2.clone())
+                        .asObjectDelta(RESOURCE_DUMMY_OID),
+                ModelExecuteOptions.create().raw(),
+                task, result);
+
+        then("all the values are correctly saved");
+        var propertyAfterAdd = assertResource(RESOURCE_DUMMY_OID, "after addition")
+                .configurationProperties()
+                .property(DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME)
+                .assertSize(2)
+                .getItem();
+        PrismAsserts2.assertPropertyValueExpressions(
+                propertyAfterAdd, "config property",
+                Objects.requireNonNull(constPpv1.getExpression()).getExpression(),
+                Objects.requireNonNull(constPpv2.getExpression()).getExpression());
+
+        when("one of the values is removed");
+        executeChanges(
+                deltaFor(ResourceType.class)
+                        .item(DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_PATH, def)
+                        .delete(constPpv1.clone())
+                        .asObjectDelta(RESOURCE_DUMMY_OID),
+                ModelExecuteOptions.create().raw(),
+                task, result);
+
+        then("only the remaining value is there");
+        var propertyAfterDelete = assertResource(RESOURCE_DUMMY_OID, "after removal")
+                .configurationProperties()
+                .property(DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME)
+                .assertSize(1)
+                .getItem();
+        PrismAsserts2.assertPropertyValueExpressions(
+                propertyAfterDelete, "config property after value removal",
+                Objects.requireNonNull(constPpv2.getExpression()).getExpression());
     }
 
     private void assertDummyScriptsAdd(PrismObject<UserType> user, PrismObject<? extends ShadowType> account, ResourceType resource) {

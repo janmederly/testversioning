@@ -17,7 +17,7 @@ import org.hibernate.annotations.ForeignKey;
 import org.hibernate.annotations.*;
 
 import com.evolveum.midpoint.repo.sql.data.RepositoryContext;
-import com.evolveum.midpoint.repo.sql.data.common.embedded.REmbeddedReference;
+import com.evolveum.midpoint.repo.sql.data.common.embedded.RSimpleEmbeddedReference;
 import com.evolveum.midpoint.repo.sql.data.common.embedded.ROperationalState;
 import com.evolveum.midpoint.repo.sql.data.common.embedded.RPolyString;
 import com.evolveum.midpoint.repo.sql.data.common.enums.RResourceAdministrativeState;
@@ -31,6 +31,8 @@ import com.evolveum.midpoint.repo.sql.util.RUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ResourceBusinessConfigurationType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ResourceType;
 
+import org.hibernate.type.descriptor.jdbc.IntegerJdbcType;
+
 @Entity
 @ForeignKey(name = "fk_resource")
 @Table(uniqueConstraints = @UniqueConstraint(name = "uc_resource_name", columnNames = { "name_norm" }),
@@ -43,7 +45,7 @@ import com.evolveum.midpoint.xml.ns._public.common.common_3.ResourceType;
 public class RResource extends RObject {
 
     private RPolyString nameCopy;
-    private REmbeddedReference connectorRef;
+    private RSimpleEmbeddedReference connectorRef;
     private ROperationalState operationalState;
     //resource business configuration, embedded component can't be used, because then it couldn't use
     //non embedded approverRef relationship
@@ -54,7 +56,7 @@ public class RResource extends RObject {
     private Boolean template;
 
     @Enumerated(EnumType.ORDINAL)
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     public RResourceAdministrativeState getAdministrativeState() {
         return administrativeState;
     }
@@ -71,7 +73,7 @@ public class RResource extends RObject {
     }
 
     @Embedded
-    public REmbeddedReference getConnectorRef() {
+    public RSimpleEmbeddedReference getConnectorRef() {
         return connectorRef;
     }
 
@@ -112,7 +114,7 @@ public class RResource extends RObject {
         this.operationalState = operationalState;
     }
 
-    public void setConnectorRef(REmbeddedReference connectorRef) {
+    public void setConnectorRef(RSimpleEmbeddedReference connectorRef) {
         this.connectorRef = connectorRef;
     }
 

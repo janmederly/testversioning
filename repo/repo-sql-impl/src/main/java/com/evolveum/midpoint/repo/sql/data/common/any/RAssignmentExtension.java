@@ -11,10 +11,8 @@ import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
-import jakarta.persistence.*;
 
-import org.hibernate.annotations.Cascade;
-import org.hibernate.annotations.ForeignKey;
+import jakarta.persistence.*;
 
 import com.evolveum.midpoint.prism.Item;
 import com.evolveum.midpoint.prism.PrismContainerValue;
@@ -63,10 +61,16 @@ public class RAssignmentExtension implements Serializable, EntityState {
         this.trans = trans;
     }
 
-    @ForeignKey(name = "none")
-    @MapsId("owner")
+    @MapsId
     @ManyToOne(fetch = FetchType.LAZY)
     @NotQueryable
+    @JoinColumns(
+            value = {
+                    @JoinColumn(name = "owner_owner_oid", referencedColumnName = "owner_oid"),
+                    @JoinColumn(name = "owner_id", referencedColumnName = "id")
+            },
+            foreignKey = @ForeignKey(value = ConstraintMode.NO_CONSTRAINT)
+    )
     public RAssignment getOwner() {
         return owner;
     }
@@ -89,8 +93,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return ownerId;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtBoolean> getBooleans() {
         if (booleans == null) {
             booleans = new HashSet<>();
@@ -98,8 +101,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return booleans;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtLong> getLongs() {
         if (longs == null) {
             longs = new HashSet<>();
@@ -107,8 +109,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return longs;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtString> getStrings() {
         if (strings == null) {
             strings = new HashSet<>();
@@ -116,8 +117,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return strings;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtDate> getDates() {
         if (dates == null) {
             dates = new HashSet<>();
@@ -125,8 +125,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return dates;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtReference> getReferences() {
         if (references == null) {
             references = new HashSet<>();
@@ -134,8 +133,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
         return references;
     }
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true)
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(fetch = FetchType.LAZY, mappedBy = RAExtValue.ANY_CONTAINER, orphanRemoval = true, cascade = CascadeType.ALL)
     public Set<RAExtPolyString> getPolys() {
         if (polys == null) {
             polys = new HashSet<>();
@@ -160,7 +158,7 @@ public class RAssignmentExtension implements Serializable, EntityState {
     }
 
     public void setOwnerOid(String ownerOid) {
-        this.ownerOid = ownerOid;
+            this.ownerOid = ownerOid;
     }
 
     public void setStrings(Set<RAExtString> strings) {
@@ -169,6 +167,9 @@ public class RAssignmentExtension implements Serializable, EntityState {
 
     public void setOwner(RAssignment owner) {
         this.owner = owner;
+//        if (owner != null && owner.getExtension() != this) {
+//            owner.setExtension(this);
+//        }
     }
 
     public void setOwnerId(Integer ownerId) {
@@ -181,17 +182,17 @@ public class RAssignmentExtension implements Serializable, EntityState {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) { return true; }
-        if (o == null || getClass() != o.getClass()) { return false; }
+        if (this == o) {return true;}
+        if (o == null || getClass() != o.getClass()) {return false;}
 
         RAssignmentExtension that = (RAssignmentExtension) o;
 
-        if (dates != null ? !dates.equals(that.dates) : that.dates != null) { return false; }
-        if (longs != null ? !longs.equals(that.longs) : that.longs != null) { return false; }
-        if (polys != null ? !polys.equals(that.polys) : that.polys != null) { return false; }
-        if (references != null ? !references.equals(that.references) : that.references != null) { return false; }
-        if (strings != null ? !strings.equals(that.strings) : that.strings != null) { return false; }
-        if (booleans != null ? !booleans.equals(that.booleans) : that.booleans != null) { return false; }
+        if (dates != null ? !dates.equals(that.dates) : that.dates != null) {return false;}
+        if (longs != null ? !longs.equals(that.longs) : that.longs != null) {return false;}
+        if (polys != null ? !polys.equals(that.polys) : that.polys != null) {return false;}
+        if (references != null ? !references.equals(that.references) : that.references != null) {return false;}
+        if (strings != null ? !strings.equals(that.strings) : that.strings != null) {return false;}
+        if (booleans != null ? !booleans.equals(that.booleans) : that.booleans != null) {return false;}
 
         return true;
     }

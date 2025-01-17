@@ -7,18 +7,19 @@
 package com.evolveum.midpoint.repo.sql.data.common.container;
 
 import java.util.Objects;
-import jakarta.persistence.*;
 import javax.xml.datatype.XMLGregorianCalendar;
 
-import org.hibernate.annotations.DynamicUpdate;
-import org.hibernate.annotations.GenericGenerator;
-import org.hibernate.annotations.Persister;
-import org.hibernate.annotations.Type;
+import jakarta.persistence.*;
+import jakarta.persistence.ForeignKey;
+import jakarta.persistence.Index;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.*;
+import org.hibernate.type.descriptor.jdbc.IntegerJdbcType;
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.repo.sql.data.RepositoryContext;
 import com.evolveum.midpoint.repo.sql.data.common.RObject;
-import com.evolveum.midpoint.repo.sql.data.common.embedded.REmbeddedReference;
+import com.evolveum.midpoint.repo.sql.data.common.embedded.RSimpleEmbeddedReference;
 import com.evolveum.midpoint.repo.sql.data.common.enums.ROperationExecutionRecordType;
 import com.evolveum.midpoint.repo.sql.data.common.enums.ROperationResultStatus;
 import com.evolveum.midpoint.repo.sql.data.common.id.RContainerId;
@@ -53,8 +54,8 @@ public class ROperationExecution implements Container<RObject> {
     private String ownerOid;
     private Integer id;
 
-    private REmbeddedReference initiatorRef;
-    private REmbeddedReference taskRef;
+    private RSimpleEmbeddedReference initiatorRef;
+    private RSimpleEmbeddedReference taskRef;
     private ROperationResultStatus status;
     private ROperationExecutionRecordType recordType;
     private XMLGregorianCalendar timestamp;
@@ -67,9 +68,8 @@ public class ROperationExecution implements Container<RObject> {
         this.setOwner(owner);
     }
 
-    @Id
-    @JoinColumn(foreignKey = @ForeignKey(name = "fk_op_exec_owner"))
-    @MapsId("owner")
+    @JoinColumn(name = "owner_oid", referencedColumnName = "oid", foreignKey = @ForeignKey(name = "fk_op_exec_owner"))
+    @MapsId("ownerOid")
     @ManyToOne(fetch = FetchType.LAZY)
     @NotQueryable
     @Override
@@ -116,23 +116,24 @@ public class ROperationExecution implements Container<RObject> {
     }
 
     @Embedded
-    public REmbeddedReference getInitiatorRef() {
+    public RSimpleEmbeddedReference getInitiatorRef() {
         return initiatorRef;
     }
 
-    public void setInitiatorRef(REmbeddedReference initiatorRef) {
+    public void setInitiatorRef(RSimpleEmbeddedReference initiatorRef) {
         this.initiatorRef = initiatorRef;
     }
 
     @Embedded
-    public REmbeddedReference getTaskRef() {
+    public RSimpleEmbeddedReference getTaskRef() {
         return taskRef;
     }
 
-    public void setTaskRef(REmbeddedReference taskRef) {
+    public void setTaskRef(RSimpleEmbeddedReference taskRef) {
         this.taskRef = taskRef;
     }
 
+    @JdbcType(IntegerJdbcType.class)
     public ROperationResultStatus getStatus() {
         return status;
     }
@@ -141,6 +142,7 @@ public class ROperationExecution implements Container<RObject> {
         this.status = status;
     }
 
+    @JdbcType(IntegerJdbcType.class)
     public ROperationExecutionRecordType getRecordType() {
         return recordType;
     }

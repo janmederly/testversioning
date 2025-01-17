@@ -56,7 +56,6 @@ import com.evolveum.midpoint.prism.PrismReferenceValue;
 import com.evolveum.midpoint.prism.path.ItemPath;
 import com.evolveum.midpoint.prism.query.ObjectQuery;
 import com.evolveum.midpoint.prism.xml.XmlTypeConverter;
-import com.evolveum.midpoint.schema.constants.SchemaConstants;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
 import com.evolveum.midpoint.schema.util.ShadowUtil;
@@ -639,9 +638,14 @@ public class ColumnUtils {
 
                 Component c = cellItem.get(componentId);
 
-                PrismReferenceValue refVal = caseType.getObjectRef().asReferenceValue();
-                String descriptionValue = refVal.getObject() != null ?
-                        refVal.getObject().asObjectable().getDescription() : "";
+                String descriptionValue = "";
+                ObjectReferenceType objectRef = caseType.getObjectRef();
+                if (objectRef != null) {
+                    PrismReferenceValue refVal = objectRef.asReferenceValue();
+                    if (refVal.getObject() != null) {
+                        descriptionValue = refVal.getObject().asObjectable().getDescription();
+                    }
+                }
 
                 c.add(new AttributeAppender("title", descriptionValue));
             }
@@ -662,7 +666,7 @@ public class ColumnUtils {
             protected IModel<String> createLinkModel(IModel<PrismContainerValueWrapper<CaseWorkItemType>> rowModel) {
                 CaseWorkItemType caseWorkItemType = unwrapRowModel(rowModel);
                 CaseType caseType = CaseTypeUtil.getCase(caseWorkItemType);
-                return Model.of(WebComponentUtil.getReferencedObjectDisplayNameAndName(caseType.getTargetRef(), true, pageBase));
+                return Model.of(WebComponentUtil.getReferencedObjectDisplayNameAndName(caseType.getTargetRef(), false, pageBase));
             }
 
             @Override
@@ -824,6 +828,10 @@ public class ColumnUtils {
             @Override
             public boolean isEnabled(IModel<SelectableBean<CaseType>> rowModel) {
                 CaseType caseType = rowModel.getObject().getValue();
+                if (caseType.getObjectRef() == null) {
+                    return false;
+                }
+
                 PrismObject object = caseType.getObjectRef().getObject();
                 // Do not generate link if the object has not been created yet.
                 // Check the version to see if it has not been created.
@@ -991,18 +999,20 @@ public class ColumnUtils {
             one = 1;
         }
         if (CaseTypeUtil.isApprovalCase(caseType)) {
-            Boolean result = ApprovalUtils.approvalBooleanValueFromUri(caseType.getOutcome());
-            if (result == null) {
+            ApprovalOutcomeIcon icon;
+            String outcome = caseType.getOutcome();
+
+            if (StringUtils.isEmpty(outcome)) {
                 if (caseType.getCloseTimestamp() != null) {
                     return;
                 } else {
-                    putDisplayTypeToMapWithCount(map, one, GuiDisplayTypeUtil.createDisplayType(ApprovalOutcomeIcon.IN_PROGRESS));
+                    icon = ApprovalOutcomeIcon.IN_PROGRESS;
                 }
-            } else if (result) {
-                putDisplayTypeToMapWithCount(map, one, GuiDisplayTypeUtil.createDisplayType(ApprovalOutcomeIcon.APPROVED));
             } else {
-                putDisplayTypeToMapWithCount(map, one, GuiDisplayTypeUtil.createDisplayType(ApprovalOutcomeIcon.REJECTED));
+                icon = WebComponentUtil.caseOutcomeUriToIcon(outcome);
             }
+
+            putDisplayTypeToMapWithCount(map, one, GuiDisplayTypeUtil.createDisplayType(icon));
             return;
         }
         if (CaseTypeUtil.isManualProvisioningCase(caseType)) {
@@ -1019,7 +1029,7 @@ public class ColumnUtils {
                     result = OperationResultStatusType.fromValue(caseType.getOutcome());
                 } catch (IllegalArgumentException e) {
                     putDisplayTypeToMapWithCount(map, one,
-                            GuiDisplayTypeUtil.createDisplayType(WebComponentUtil.caseOutcomeUriToIcon(caseType.getOutcome())));
+                            GuiDisplayTypeUtil.createDisplayType(WebComponentUtil.caseOutcomeUriToPresentation(caseType.getOutcome())));
                     return;
                 }
                 OperationResultStatusPresentationProperties resultStatus = OperationResultStatusPresentationProperties.parseOperationalResultStatus(result);

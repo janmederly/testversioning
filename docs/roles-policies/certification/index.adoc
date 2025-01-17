@@ -1,3 +1,7 @@
+---
+midpoint-feature: access-certification
+doc-type: intro
+---
 = Access Certification
 :page-wiki-name: Access Certification
 :page-wiki-id: 21200930
@@ -6,8 +10,6 @@
 :page-wiki-metadata-modify-user: mederly
 :page-wiki-metadata-modify-date: 2020-06-18T07:37:54.090+02:00
 :page-toc: top
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: orange
 
 
@@ -207,10 +209,7 @@ The task looks like this:
     <handlerUri>http://midpoint.evolveum.com/xml/ns/public/certification/task/campaign-creation/handler-3</handlerUri>
     <objectRef type="AccessCertificationDefinitionType">
         <filter>
-            <q:equal>
-                <q:path>name</q:path>
-                <q:value>Role Inducements</q:value>
-            </q:equal>
+            <q:text>name = "Role Inducements"</q:text>
         </filter>
     </objectRef>
     <recurrence>recurring</recurrence>

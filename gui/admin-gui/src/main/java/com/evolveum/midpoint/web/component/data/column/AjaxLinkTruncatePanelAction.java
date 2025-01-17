@@ -11,6 +11,10 @@ import java.io.Serial;
 
 import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisOperationMode;
 
+import com.evolveum.midpoint.gui.impl.component.data.column.CompositedIconPanel;
+
+import com.evolveum.midpoint.gui.impl.component.icon.CompositedIcon;
+
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.markup.html.AjaxLink;
@@ -33,21 +37,56 @@ public class AjaxLinkTruncatePanelAction extends Panel {
     private static final String ID_LINK = "link";
     private static final String ID_LINK_LABEL = "link_label";
     private static final String ID_ICON = "icon";
-
-    private static final String ID_LINK_2 = "link_2";
+    private static final String ID_LINK_ICON = "link_icon";
     private static final String ID_IMAGE = "image";
 
-    public AjaxLinkTruncatePanelAction(String id, IModel<?> labelModel, StringResourceModel popupText, DisplayType displayType,
-             LoadableDetachableModel<RoleAnalysisOperationMode> status) {
+    public AjaxLinkTruncatePanelAction(String id, IModel<?> labelModel, StringResourceModel popupText,
+            DisplayType displayType, LoadableDetachableModel<RoleAnalysisOperationMode> status) {
         super(id);
+        initLayout(status, labelModel, popupText, null, displayType);
+    }
 
+    public AjaxLinkTruncatePanelAction(String id, IModel<?> labelModel, StringResourceModel popupText,
+            CompositedIcon compositedIcon, LoadableDetachableModel<RoleAnalysisOperationMode> status) {
+        super(id);
+        initLayout(status, labelModel, popupText, compositedIcon, null);
+    }
+
+    protected String getColor() {
+        return null;
+    }
+
+    public boolean isEnabled() {
+        return true;
+    }
+
+    public void onClick(AjaxRequestTarget target) {
+    }
+
+    public String getLabelHeight() {
+        return "70px";
+    }
+
+    public String getCssContainer() {
+        return " font-weight-normal";
+    }
+
+    public String getModel(LoadableDetachableModel<RoleAnalysisOperationMode> status) {
+        return status.getObject().getDisplayString();
+    }
+
+    private void initLayout(LoadableDetachableModel<RoleAnalysisOperationMode> status,
+            IModel<?> labelModel,
+            StringResourceModel popupText,
+            CompositedIcon compositedIcon,
+            DisplayType displayType) {
         WebMarkupContainer webMarkupContainer = new WebMarkupContainer("container");
-        if(getColor() != null) {
+        if (getColor() != null) {
             webMarkupContainer.add(new AttributeAppender("class", getColor()));
         }
         webMarkupContainer.setOutputMarkupId(true);
         webMarkupContainer.setOutputMarkupPlaceholderTag(true);
-        webMarkupContainer.add(new AttributeAppender("class",getCssContainer()));
+        webMarkupContainer.add(new AttributeAppender("class", getCssContainer()));
         add(webMarkupContainer);
 
         AjaxLink<String> link = new AjaxLink<>(ID_LINK) {
@@ -72,63 +111,37 @@ public class AjaxLinkTruncatePanelAction extends Panel {
         link.add(label);
         link.add(new EnableBehaviour(AjaxLinkTruncatePanelAction.this::isEnabled));
         link.add(new AttributeModifier("style", "height:" + getLabelHeight()));
-
-        webMarkupContainer.add(new ImagePanel(ID_ICON, Model.of(displayType)));
+        if (compositedIcon != null) {
+            webMarkupContainer.add(new CompositedIconPanel(ID_ICON, Model.of(compositedIcon)));
+        } else {
+            webMarkupContainer.add(new ImagePanel(ID_ICON, Model.of(displayType)));
+        }
         webMarkupContainer.add(link);
 
-        initLayout(status,webMarkupContainer);
-    }
-
-    protected String getColor(){
-        return null;
-    }
-    public boolean isEnabled() {
-        return true;
-    }
-
-    public void onClick(AjaxRequestTarget target) {
-    }
-
-    public String getLabelHeight() {
-        return "70px";
-    }
-
-    public String getCssContainer(){
-        return " font-weight-normal";
-    }
-
-
-
-    public String getModel(LoadableDetachableModel<RoleAnalysisOperationMode> status) {
-        return status.getObject().getDisplayString();
-    }
-
-    private void initLayout(LoadableDetachableModel<RoleAnalysisOperationMode> status, WebMarkupContainer webMarkupContainer) {
         setOutputMarkupId(true);
 
         Label image = new Label(ID_IMAGE);
         image.add(AttributeModifier.replace("class", getModel(status)));
         image.setOutputMarkupId(true);
-        AjaxLink<Void> link = new AjaxLink<>(ID_LINK_2) {
+        AjaxLink<Void> actionLink = new AjaxLink<>(ID_LINK_ICON) {
 
             @Override
             public void onClick(AjaxRequestTarget target) {
-                RoleAnalysisOperationMode roleAnalysisOperationMode = onClickPerformedAction(target, null);
+                RoleAnalysisOperationMode roleAnalysisOperationMode = onClickPerformedAction(target, status.getObject());
 
-                if (roleAnalysisOperationMode.equals(RoleAnalysisOperationMode.NEUTRAL)) {
-                    image.add(AttributeModifier.replace("class", RoleAnalysisOperationMode.ADD.getDisplayString()));
-                } else if (roleAnalysisOperationMode.equals(RoleAnalysisOperationMode.ADD)) {
-                    image.add(AttributeModifier.replace("class", RoleAnalysisOperationMode.REMOVE.getDisplayString()));
-                } else if (roleAnalysisOperationMode.equals(RoleAnalysisOperationMode.REMOVE)) {
-                    image.add(AttributeModifier.replace("class", RoleAnalysisOperationMode.NEUTRAL.getDisplayString()));
+                if (roleAnalysisOperationMode.equals(RoleAnalysisOperationMode.EXCLUDE)) {
+                    image.add(AttributeModifier.replace("class", RoleAnalysisOperationMode.INCLUDE.getDisplayString()));
+                } else if (roleAnalysisOperationMode.equals(RoleAnalysisOperationMode.INCLUDE)) {
+                    image.add(AttributeModifier.replace("class", RoleAnalysisOperationMode.EXCLUDE.getDisplayString()));
                 }
+
                 target.add(image);
             }
         };
-        link.add(image);
-        link.setOutputMarkupId(true);
+        actionLink.add(image);
+        actionLink.setOutputMarkupId(true);
 
-        webMarkupContainer.add(link);
+        webMarkupContainer.add(actionLink);
 
     }
 

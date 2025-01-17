@@ -6,6 +6,11 @@
  */
 package com.evolveum.midpoint.gui.api.util;
 
+import javax.xml.namespace.QName;
+
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+
 import com.evolveum.midpoint.gui.api.GuiStyleConstants;
 import com.evolveum.midpoint.gui.api.page.PageAdminLTE;
 import com.evolveum.midpoint.gui.api.page.PageBase;
@@ -26,11 +31,6 @@ import com.evolveum.midpoint.web.page.admin.server.dto.OperationResultStatusPres
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 import com.evolveum.prism.xml.ns._public.types_3.PolyStringTranslationType;
 import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
-
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-
-import javax.xml.namespace.QName;
 
 public class GuiDisplayTypeUtil {
 
@@ -251,7 +251,7 @@ public class GuiDisplayTypeUtil {
         if (displayType == null || displayType.getIcon() == null) {
             return "";
         }
-        return displayType.getIcon().getColor();
+        return removeStringAfterSemicolon(displayType.getIcon().getColor());
     }
 
     public static String getHelp(DisplayType displayType) {
@@ -314,5 +314,12 @@ public class GuiDisplayTypeUtil {
         help.setTranslation(translationHelp);
         display.setHelp(help);
         return display;
+    }
+
+    public static String removeStringAfterSemicolon(String headerColor) {
+        if (headerColor == null || !headerColor.contains(";")) {
+            return headerColor;
+        }
+        return headerColor.substring(0, headerColor.indexOf(";"));
     }
 }

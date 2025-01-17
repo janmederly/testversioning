@@ -13,7 +13,7 @@
     <parent>
         <artifactId>model</artifactId>
         <groupId>com.evolveum.midpoint.model</groupId>
-        <version>4.8.1-SNAPSHOT</version>
+        <version>4.8.6-SNAPSHOT</version>
     </parent>
 
     <artifactId>model-intest</artifactId>
@@ -55,6 +55,13 @@
         <dependency>
             <groupId>com.evolveum.prism</groupId>
             <artifactId>prism-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.evolveum.prism</groupId>
+            <artifactId>prism-api</artifactId>
+            <type>test-jar</type>
+            <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>

@@ -10,6 +10,7 @@ package com.evolveum.midpoint.gui.impl.page.admin.resource.component.wizard.obje
 import com.evolveum.midpoint.gui.api.page.PageBase;
 import com.evolveum.midpoint.gui.api.prism.wrapper.PrismContainerValueWrapper;
 import com.evolveum.midpoint.gui.api.prism.wrapper.PrismContainerWrapper;
+import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
 import com.evolveum.midpoint.gui.api.util.MappingDirection;
 import com.evolveum.midpoint.gui.api.util.WebPrismUtil;
 import com.evolveum.midpoint.gui.impl.component.tile.TileTablePanel;
@@ -39,6 +40,7 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.extensions.markup.html.repeater.data.table.ISortableDataProvider;
 import org.apache.wicket.markup.html.WebMarkupContainer;
+import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.panel.Fragment;
 import org.apache.wicket.markup.repeater.RepeatingView;
 import org.apache.wicket.model.IModel;
@@ -50,6 +52,7 @@ public abstract class AbstractSpecificMappingTileTable<C extends Containerable> 
 
     private static final Trace LOGGER = TraceManager.getTrace(AbstractSpecificMappingTileTable.class);
     private static final String ID_ADD_RULE_CONTAINER = "addRuleContainer";
+    private static final String ID_NO_RULE_MESSAGE = "noRuleMessage";
     private static final String ID_ADD_BUTTON = "addButton";
 
     private final IModel<PrismContainerWrapper<C>> containerModel;
@@ -168,10 +171,9 @@ public abstract class AbstractSpecificMappingTileTable<C extends Containerable> 
         String strength = translateStrength(mapping);
 
         ExpressionType expressionBean = mapping.getExpression();
-        String description = PageBase.createStringResourceStatic(
+        String description = LocalizationUtil.translate(
                 "AbstractSpecificMappingTileTable.tile.description.prefix",
-                "AbstractSpecificMappingTileTable.tile.description.prefix",
-                strength).getString();
+                new Object[] {strength});
 
         ExpressionUtil.ExpressionEvaluatorType evaluatorType = null;
         if (expressionBean != null) {
@@ -186,10 +188,9 @@ public abstract class AbstractSpecificMappingTileTable<C extends Containerable> 
 
         String evaluator = PageBase.createStringResourceStatic(null, evaluatorType).getString();
 
-        description += " " + PageBase.createStringResourceStatic(
+        description += " " + LocalizationUtil.translate(
                 "AbstractSpecificMappingTileTable.tile.description.suffix",
-                "AbstractSpecificMappingTileTable.tile.description.suffix",
-                evaluator).getString();
+                new Object[] {evaluator});
         return description;
     }
 
@@ -213,9 +214,15 @@ public abstract class AbstractSpecificMappingTileTable<C extends Containerable> 
         WebMarkupContainer addRuleContainer = new WebMarkupContainer(ID_ADD_RULE_CONTAINER);
         addRuleContainer.add(new VisibleBehaviour(() -> getTilesModel().getObject().isEmpty()));
 
+        addRuleContainer.add(new Label(ID_NO_RULE_MESSAGE, getPageBase().createStringResource(getNoRuleMessageKey())));
+
         addRuleContainer.add(createAddButton(ID_ADD_BUTTON));
 
         return addRuleContainer;
+    }
+
+    protected String getNoRuleMessageKey() {
+        return "AbstractSpecificMappingTileTable.noRules";
     }
 
     private AjaxIconButton createAddButton(String buttonId) {

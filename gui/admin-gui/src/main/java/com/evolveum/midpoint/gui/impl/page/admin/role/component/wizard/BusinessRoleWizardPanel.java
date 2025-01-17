@@ -6,46 +6,40 @@
  */
 package com.evolveum.midpoint.gui.impl.page.admin.role.component.wizard;
 
-import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.RoleAnalysisObjectUtils.clusterMigrationRecompute;
-import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.RoleAnalysisObjectUtils.getRoleTypeObject;
 import static com.evolveum.midpoint.repo.api.RepositoryService.LOGGER;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-
-import com.evolveum.midpoint.gui.api.page.PageBase;
-import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.page.PageRoleAnalysis;
-
-import com.evolveum.midpoint.gui.impl.util.DetailsPageUtil;
-import com.evolveum.midpoint.web.util.OnePageParameterEncoder;
+import java.util.UUID;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 import com.evolveum.midpoint.gui.api.component.wizard.TileEnum;
 import com.evolveum.midpoint.gui.api.component.wizard.WizardModel;
 import com.evolveum.midpoint.gui.api.component.wizard.WizardPanel;
 import com.evolveum.midpoint.gui.api.component.wizard.WizardStep;
+import com.evolveum.midpoint.gui.api.page.PageBase;
 import com.evolveum.midpoint.gui.impl.component.wizard.AbstractWizardPanel;
 import com.evolveum.midpoint.gui.impl.component.wizard.WizardPanelHelper;
 import com.evolveum.midpoint.gui.impl.page.admin.ObjectChangesExecutorImpl;
 import com.evolveum.midpoint.gui.impl.page.admin.abstractrole.AbstractRoleDetailsModel;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.model.BusinessRoleApplicationDto;
 import com.evolveum.midpoint.gui.impl.page.admin.role.mining.model.BusinessRoleDto;
-import com.evolveum.midpoint.model.api.ActivitySubmissionOptions;
-import com.evolveum.midpoint.model.api.ModelService;
+import com.evolveum.midpoint.gui.impl.page.admin.role.mining.page.page.PageRoleAnalysis;
+import com.evolveum.midpoint.gui.impl.util.DetailsPageUtil;
+import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
 import com.evolveum.midpoint.prism.PrismObject;
 import com.evolveum.midpoint.prism.delta.ObjectDelta;
 import com.evolveum.midpoint.schema.ObjectDeltaOperation;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.task.api.Task;
-import com.evolveum.midpoint.util.exception.CommonException;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
+import com.evolveum.midpoint.web.util.OnePageParameterEncoder;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
-
-import org.apache.wicket.request.mapper.parameter.PageParameters;
 
 /**
  * @author lskublik
@@ -54,6 +48,9 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
 
     private static final String DOT_CLASS = BusinessRoleWizardPanel.class.getName() + ".";
     private static final String OP_PERFORM_MIGRATION = DOT_CLASS + "performMigration";
+
+    private boolean isRoleMigration = false;
+
     public BusinessRoleWizardPanel(String id, WizardPanelHelper<RoleType, AbstractRoleDetailsModel<RoleType>> helper) {
         super(id, helper);
     }
@@ -62,8 +59,6 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
         getPageBase().getFeedbackPanel().add(VisibleEnableBehaviour.ALWAYS_INVISIBLE);
         add(createWizardFragment(new WizardPanel(getIdOfWizardPanel(), new WizardModel(createBasicSteps()))));
     }
-
-    private boolean isRoleMigration = false;
 
     private List<WizardStep> createBasicSteps() {
         List<WizardStep> steps = new ArrayList<>();
@@ -76,7 +71,10 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
 
             @Override
             protected void onExitPerformed(AjaxRequestTarget target) {
-                BusinessRoleWizardPanel.this.onExitPerformed(target);
+                boolean roleMigration = exitRoleMigration(null);
+                if (!roleMigration) {
+                    BusinessRoleWizardPanel.this.onExitPerformed(target);
+                }
             }
         });
         BusinessRoleApplicationDto patterns = getAssignmentHolderModel().getPatternDeltas();
@@ -87,7 +85,10 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
 
                 @Override
                 protected void onExitPerformed(AjaxRequestTarget target) {
-                    BusinessRoleWizardPanel.this.onExitPerformed(target);
+                    boolean roleMigration = exitRoleMigration(null);
+                    if (!roleMigration) {
+                        BusinessRoleWizardPanel.this.onExitPerformed(target);
+                    }
                 }
 
                 @Override
@@ -100,7 +101,10 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
 
                 @Override
                 protected void onExitPerformed(AjaxRequestTarget target) {
-                    BusinessRoleWizardPanel.this.onExitPerformed(target);
+                    boolean roleMigration = exitRoleMigration(null);
+                    if (!roleMigration) {
+                        BusinessRoleWizardPanel.this.onExitPerformed(target);
+                    }
                 }
 
                 @Override
@@ -140,16 +144,33 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
                 BusinessRoleApplicationDto patternDeltas = getHelper().getDetailsModel().getPatternDeltas();
 
                 if (patternDeltas != null && !patternDeltas.getBusinessRoleDtos().isEmpty()) {
-                    ModelService modelService = getPageBase().getModelService();
                     Collection<ObjectDeltaOperation<? extends ObjectType>> executedDeltas = new ObjectChangesExecutorImpl()
                             .executeChanges(deltas, false, task, result, target);
 
-                    String roleOid = ObjectDeltaOperation.findAddDeltaOidRequired(executedDeltas, RoleType.class);
-                    clusterMigrationRecompute(getPageBase(), patternDeltas.getCluster().getOid(), roleOid, task, result);
+                    if(executedDeltas == null){
+                        return;
+                    }
 
-                    PrismObject<RoleType> roleObject = getRoleTypeObject(modelService, roleOid, task, result);
+                    String roleOid = ObjectDeltaOperation.findAddDeltaOidRequired(executedDeltas, RoleType.class);
+                    RoleAnalysisService roleAnalysisService = getPageBase().getRoleAnalysisService();
+                    PrismObject<RoleType> roleObject = roleAnalysisService
+                            .getRoleTypeObject(roleOid, task, result);
                     if (roleObject != null) {
-                        executeMigrationTask(result, task, patternDeltas.getBusinessRoleDtos(), roleObject);
+                        roleAnalysisService.clusterObjectMigrationRecompute(
+                                patternDeltas.getCluster().getOid(), roleOid, task, result);
+
+                        String taskOid = UUID.randomUUID().toString();
+
+                        ActivityDefinitionType activity = null;
+                        try {
+                            activity = createActivity(patternDeltas.getBusinessRoleDtos(), roleOid);
+                        } catch (SchemaException e) {
+                            LOGGER.error("Couldn't create activity for role migration: " + roleOid);
+                        }
+                        if (activity != null) {
+                            roleAnalysisService.executeMigrationTask(
+                                    patternDeltas.getCluster(), activity, roleObject, taskOid, null, task, result);
+                        }
                     }
 
                 } else {
@@ -174,7 +195,10 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
 
             @Override
             protected void onExitPerformed(AjaxRequestTarget target) {
-                BusinessRoleWizardPanel.this.onExitPerformed(target);
+                boolean roleMigration = exitRoleMigration(null);
+                if (!roleMigration) {
+                    BusinessRoleWizardPanel.this.onExitPerformed(target);
+                }
             }
         });
 
@@ -186,24 +210,6 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
         if (!result.isError()) {
 //            WebComponentUtil.createToastForCreateObject(target, RoleType.COMPLEX_TYPE);
             exitToPreview(target);
-        }
-    }
-
-    private void executeMigrationTask(OperationResult result, Task task, List<BusinessRoleDto> patternDeltas, PrismObject<RoleType> roleObject) {
-        try {
-            ActivityDefinitionType activity = createActivity(patternDeltas, roleObject.getOid());
-
-            getPageBase().getModelInteractionService().submit(
-                    activity,
-                    ActivitySubmissionOptions.create()
-                            .withTaskTemplate(new TaskType()
-                                    .name("Migration role (" + roleObject.getName().toString() + ")"))
-                            .withArchetypes(
-                                    SystemObjectsType.ARCHETYPE_UTILITY_TASK.value()),
-                    task, result);
-
-        } catch (CommonException e) {
-            LOGGER.error("Failed to execute role {} migration activity: ", roleObject.getOid(), e);
         }
     }
 
@@ -236,16 +242,8 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
     }
 
     private void exitToPreview(AjaxRequestTarget target) {
-        if (isRoleMigration) {
-            setResponsePage(PageRoleAnalysis.class);
-            PageParameters parameters = new PageParameters();
-            String clusterOid = getHelper().getDetailsModel().getPatternDeltas().getCluster().getOid();
-            parameters.add(OnePageParameterEncoder.PARAMETER, clusterOid);
-            parameters.add("panelId", "clusterDetails");
-            Class<? extends PageBase> detailsPageClass = DetailsPageUtil
-                    .getObjectDetailsPage(RoleAnalysisClusterType.class);
-            getPageBase().navigateToNext(detailsPageClass, parameters);
-        } else {
+        boolean roleMigration = exitRoleMigration("migratedRoles");
+        if (!roleMigration) {
             showChoiceFragment(
                     target,
                     new RoleWizardPreviewPanel<>(getIdOfChoicePanel(), getHelper().getDetailsModel(), PreviewTileType.class) {
@@ -258,6 +256,30 @@ public class BusinessRoleWizardPanel extends AbstractWizardPanel<RoleType, Abstr
                         }
                     });
         }
+    }
+
+    public boolean exitRoleMigration(String panelId) {
+        if (isRoleMigration) {
+            setResponsePage(PageRoleAnalysis.class);
+            PageParameters parameters = new PageParameters();
+            String clusterOid = getHelper().getDetailsModel().getPatternDeltas().getCluster().getOid();
+            parameters.add(OnePageParameterEncoder.PARAMETER, clusterOid);
+            if (panelId == null) {
+                PageParameters pageParameters = getPageBase().getPageParameters();
+                if (pageParameters != null) {
+                    panelId = pageParameters.get("panelId").toString();
+                }
+
+                if (panelId == null || panelId.isEmpty()) {
+                    panelId = "clusterDetails";
+                }
+            }
+            parameters.add("panelId", panelId);
+            Class<? extends PageBase> detailsPageClass = DetailsPageUtil
+                    .getObjectDetailsPage(RoleAnalysisClusterType.class);
+            getPageBase().navigateToNext(detailsPageClass, parameters);
+        }
+        return isRoleMigration;
     }
 
     private void showGovernanceMembersPanel(AjaxRequestTarget target) {

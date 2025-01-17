@@ -20,7 +20,7 @@ import org.hibernate.annotations.Index;
 import org.hibernate.annotations.*;
 
 import com.evolveum.midpoint.repo.sql.data.RepositoryContext;
-import com.evolveum.midpoint.repo.sql.data.common.embedded.REmbeddedReference;
+import com.evolveum.midpoint.repo.sql.data.common.embedded.RSimpleEmbeddedReference;
 import com.evolveum.midpoint.repo.sql.data.common.embedded.RPolyString;
 import com.evolveum.midpoint.repo.sql.data.common.embedded.RTaskAutoScaling;
 import com.evolveum.midpoint.repo.sql.data.common.enums.*;
@@ -34,6 +34,8 @@ import com.evolveum.midpoint.repo.sql.util.MidPointJoinedPersister;
 import com.evolveum.midpoint.repo.sql.util.RUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.TaskAutoScalingType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.TaskType;
+
+import org.hibernate.type.descriptor.jdbc.IntegerJdbcType;
 
 @Entity
 @Table(name = "m_task", indexes = {
@@ -61,8 +63,8 @@ public class RTask extends RObject implements ROperationResultFull {
     private RTaskRecurrence recurrence;
     private RTaskBinding binding;
 
-    private REmbeddedReference objectRef;
-    private REmbeddedReference ownerRefTask;
+    private RSimpleEmbeddedReference objectRef;
+    private RSimpleEmbeddedReference ownerRefTask;
     private String parent;
 
     private RThreadStopAction threadStopAction;
@@ -81,11 +83,13 @@ public class RTask extends RObject implements ROperationResultFull {
         return dependent;
     }
 
+    @JdbcType(IntegerJdbcType.class)
     @Enumerated(EnumType.ORDINAL)
     public RTaskWaitingReason getWaitingReason() {
         return waitingReason;
     }
 
+    @JdbcType(IntegerJdbcType.class)
     @Enumerated(EnumType.ORDINAL)
     public RTaskSchedulingState getSchedulingState() {
         return schedulingState;
@@ -93,7 +97,7 @@ public class RTask extends RObject implements ROperationResultFull {
 
     @Embedded
     @AttributeOverrides({
-            @AttributeOverride(name = "mode", column = @Column(name = "autoScalingMode"))
+            @AttributeOverride(name = "mode", column = @Column(name = "autoScalingMode")),
     })
     public RTaskAutoScaling getAutoScaling() {
         return autoScaling;
@@ -104,13 +108,13 @@ public class RTask extends RObject implements ROperationResultFull {
     }
 
     @Enumerated(EnumType.ORDINAL)
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     public RThreadStopAction getThreadStopAction() {
         return threadStopAction;
     }
 
     @Embedded
-    public REmbeddedReference getObjectRef() {
+    public RSimpleEmbeddedReference getObjectRef() {
         return objectRef;
     }
 
@@ -121,7 +125,7 @@ public class RTask extends RObject implements ROperationResultFull {
             @AttributeOverride(name = "targetOid", column = @Column(name = "ownerRef_targetOid", length = RUtil.COLUMN_LENGTH_OID)),
             @AttributeOverride(name = "targetType", column = @Column(name = "ownerRef_targetType"))
     })
-    public REmbeddedReference getOwnerRefTask() {
+    public RSimpleEmbeddedReference getOwnerRefTask() {
         return ownerRefTask;
     }
 
@@ -132,19 +136,21 @@ public class RTask extends RObject implements ROperationResultFull {
     }
 
     @Enumerated(EnumType.ORDINAL)
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     public RTaskBinding getBinding() {
         return binding;
     }
 
     @JaxbName(localPart = "executionState")
     @Enumerated(EnumType.ORDINAL)
+    @JdbcType(IntegerJdbcType.class)
     public RTaskExecutionState getExecutionStatus() {
         return executionStatus;
     }
 
     @JaxbPath(itemPath = { @JaxbName(localPart = "schedule"), @JaxbName(localPart = "recurrence") })
     @Enumerated(EnumType.ORDINAL)
+    @JdbcType(IntegerJdbcType.class)
     public RTaskRecurrence getRecurrence() {
         return recurrence;
     }
@@ -180,11 +186,11 @@ public class RTask extends RObject implements ROperationResultFull {
         this.threadStopAction = threadStopAction;
     }
 
-    public void setObjectRef(REmbeddedReference objectRef) {
+    public void setObjectRef(RSimpleEmbeddedReference objectRef) {
         this.objectRef = objectRef;
     }
 
-    public void setOwnerRefTask(REmbeddedReference ownerRefTask) {
+    public void setOwnerRefTask(RSimpleEmbeddedReference ownerRefTask) {
         this.ownerRefTask = ownerRefTask;
     }
 
@@ -231,6 +237,7 @@ public class RTask extends RObject implements ROperationResultFull {
     @Override
     @JaxbName(localPart = "resultStatus")
     @Enumerated(EnumType.ORDINAL)
+    @JdbcType(IntegerJdbcType.class)
     public ROperationResultStatus getStatus() {
         return status;
     }

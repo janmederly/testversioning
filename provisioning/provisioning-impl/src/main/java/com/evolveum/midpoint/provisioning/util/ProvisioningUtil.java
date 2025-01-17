@@ -18,6 +18,8 @@ import javax.xml.namespace.QName;
 
 import com.evolveum.midpoint.provisioning.impl.shadows.manager.ShadowCreator;
 
+import com.evolveum.midpoint.util.MiscUtil;
+
 import org.apache.commons.lang3.Validate;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -231,19 +233,27 @@ public class ProvisioningUtil {
     private static boolean shouldExplicitlyFetch(
             ResourceAttributeDefinition<?> attributeDefinition,
             boolean returnsDefaultAttributes, ProvisioningContext ctx) {
-        AttributeFetchStrategyType fetchStrategy = attributeDefinition.getFetchStrategy();
+        AttributeFetchStrategyType fetchStrategy =
+                Objects.requireNonNullElse(attributeDefinition.getFetchStrategy(), AttributeFetchStrategyType.IMPLICIT);
         if (fetchStrategy == AttributeFetchStrategyType.EXPLICIT) {
             return true;
-        } else if (returnsDefaultAttributes) {
+        }
+        if (returnsDefaultAttributes) {
             // Normal attributes are returned by default. So there's no need to explicitly request this attribute.
             return false;
-        } else if (isFetchingRequested(ctx, attributeDefinition)) {
+        }
+        if (isFetchingRequested(ctx, attributeDefinition)) {
             // Client wants this attribute.
             return true;
-        } else {
-            // If the fetch strategy is MINIMAL, we want to skip. Otherwise, request it.
-            return fetchStrategy != AttributeFetchStrategyType.MINIMAL;
         }
+        if (fetchStrategy == AttributeFetchStrategyType.MINIMAL) {
+            // This attribute is configured to be NOT fetched by default. So be it.
+            return false;
+        }
+        assert fetchStrategy == AttributeFetchStrategyType.IMPLICIT;
+        // If returned by default: WILL fetch explicitly, because we are asking to not return default attributes
+        // If not returned by default: WILL NOT fetch explicitly, because it's not returned by default anyway
+        return attributeDefinition.isReturnedByDefault();
     }
 
     private static boolean isFetchingRequested(ProvisioningContext ctx, ResourceAttributeDefinition<?> attributeDefinition) {
@@ -622,7 +632,9 @@ public class ProvisioningUtil {
             LOGGER.trace("More than one live shadow found ({} out of {}) {}\n{}",
                     liveShadows.size(), shadows.size(), context, DebugUtil.debugDumpLazily(shadows, 1));
             // TODO: handle "more than one shadow" case for conflicting shadows - MID-4490
-            throw new IllegalStateException("Found more than one live shadow " + context + ": " + liveShadows);
+            throw new IllegalStateException(
+                    "Found more than one live shadow %s: %s".formatted(
+                            context, MiscUtil.getDiagInfo(liveShadows, 10, 1000)));
         } else {
             return liveShadows.get(0);
         }

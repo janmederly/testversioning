@@ -582,7 +582,9 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
                 prismObject.getOid(),
                 options.isForceReindex());
 
-        if (modifications.isEmpty() && !RepoModifyOptions.isForceReindex(options)) {
+        var reindex = options.isForceReindex() && updateContext.mapping().isReindexSupported();
+
+        if (modifications.isEmpty() && !reindex) {
             logger.debug("Modification list is empty, nothing was modified.");
             operationResult.recordStatus(OperationResultStatus.SUCCESS,
                     "Modification list is empty, nothing was modified.");
@@ -599,8 +601,6 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
         }
         invokeConflictWatchers(w -> w.beforeModifyObject(prismObject));
         PrismObject<T> originalObject = prismObject.clone(); // for result later
-
-        boolean reindex = options.isForceReindex();
 
         if (reindex) {
             // UpdateTables is false, we want only to process modifications on fullObject
@@ -722,6 +722,24 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
         } else {
             ItemDeltaCollectionsUtil.checkConsistence(modifications, ConsistencyCheckScope.MANDATORY_CHECKS_ONLY);
         }
+
+
+
+        // additional check to prevent storing invalid reference OIDs
+        modifications.forEach(delta -> {
+            delta.accept(visitable -> {
+                if (visitable instanceof PrismReferenceValue prv) {
+                    String oid = prv.getOid();
+                    if (oid != null) {
+                        try {
+                            UUID.fromString(oid);
+                        } catch (IllegalArgumentException e) {
+                            throw new IllegalArgumentException("Cannot convert OID '" + oid + "' to UUID", e);
+                        }
+                    }
+                }
+            }, false);
+        });
     }
 
     private void logTraceModifications(@NotNull Collection<? extends ItemDelta<?, ?>> modifications) {
@@ -1018,6 +1036,19 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
                 throw new RepositoryException("searchObjectsIterative() does not support ordering"
                         + " by multiple paths (yet): " + providedOrdering);
             }
+            if (providedOrdering != null && providedOrdering.size() == 1) {
+                var instruction = providedOrdering.get(0);
+                if (OrderDirection.ASCENDING.equals(instruction.getDirection())
+                        && instruction.getOrderBy() != null
+                        && instruction.getOrderBy().size() == 1
+                        && ItemPath.isIdentifier(instruction.getOrderBy().first())) {
+                    // If provided ordering is OID ascending, we can safely ignore it, since
+                    // built-in ordering is OID ascending.
+                    providedOrdering = null;
+                }
+            }
+
+
 
             ObjectQuery pagedQuery = prismContext().queryFactory().createQuery();
             ObjectPaging paging = prismContext().queryFactory().createPaging();
@@ -1962,6 +1993,9 @@ public class SqaleRepositoryService extends SqaleServiceBase implements Reposito
 
         try {
             return executeAllocateContainerIdentifiers(type, oidUuid, howMany);
+        } catch (ObjectNotFoundException e) {
+            operationResult.recordHandledError(e);
+            throw e;
         } catch (RepositoryException | RuntimeException | SchemaException e) {
             throw handledGeneralException(e, operationResult);
         } catch (Throwable t) {

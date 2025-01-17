@@ -14,8 +14,15 @@ import com.evolveum.midpoint.gui.api.prism.wrapper.ItemWrapper;
 import com.evolveum.midpoint.gui.api.util.WebPrismUtil;
 import com.evolveum.midpoint.gui.impl.component.menu.LeftMenuAuthzUtil;
 
+import com.evolveum.midpoint.model.common.archetypes.ArchetypeManager;
+import com.evolveum.midpoint.schema.TaskExecutionMode;
+import com.evolveum.midpoint.util.exception.ConfigurationException;
+import com.evolveum.midpoint.web.security.MidPointApplication;
+import com.evolveum.midpoint.web.page.error.PageError404;
+
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.wicket.Component;
+import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.markup.html.WebMarkupContainer;
@@ -25,6 +32,7 @@ import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import com.evolveum.midpoint.gui.api.component.result.MessagePanel;
@@ -303,6 +311,7 @@ public abstract class AbstractPageObjectDetails<O extends ObjectType, ODM extend
                 deltas = getObjectDetailsModels().collectDeltas(result);
             }
             checkValidationErrors(target, objectDetailsModels.getValidationErrors());
+
         } catch (Throwable ex) {
             result.recordFatalError(getString("pageAdminObjectDetails.message.cantCreateObject"), ex);
             LoggingUtils.logUnexpectedException(LOGGER, "Create Object failed", ex);
@@ -494,13 +503,22 @@ public abstract class AbstractPageObjectDetails<O extends ObjectType, ODM extend
     }
 
     private ContainerPanelConfigurationType findDefaultConfiguration() {
+        String panelId = WebComponentUtil.getPanelIdentifierFromParams(getPageParameters());
 
-        ContainerPanelConfigurationType defaultConfiguration = findDefaultConfiguration(getPanelConfigurations().getObject(),
-                WebComponentUtil.getPanelIdentifierFromParams(getPageParameters()));
+        ContainerPanelConfigurationType defaultConfiguration = findDefaultConfiguration(getPanelConfigurations().getObject(), panelId);
 
-        if (defaultConfiguration != null) {
+        if (defaultConfiguration != null && WebComponentUtil.getElementVisibility(defaultConfiguration.getVisibility())) {
             return defaultConfiguration;
         }
+
+        if (panelId != null) {
+            //wrong panel id or hidden panel
+            getSession().error(
+                    createStringResource(
+                            "AbstractPageObjectDetails.panelNotFound", panelId, getPageTitleModel().getObject()).getString());
+            throw new RestartResponseException(PageError404.class);
+        }
+
         return getPanelConfigurations().getObject()
                 .stream()
                 .filter(config -> isApplicableForOperation(config) && WebComponentUtil.getElementVisibility(config.getVisibility()))
@@ -619,7 +637,9 @@ public abstract class AbstractPageObjectDetails<O extends ObjectType, ODM extend
             initMainPanel(config, form);
             target.add(getFeedbackPanel());
 
-            overwritePageParameters(config);
+            if (config != null && config.getPanelType() != null) {
+                overwritePageParameters(config);
+            }
             target.add(AbstractPageObjectDetails.this);
         } catch (Throwable e) {
             if (LOGGER.isDebugEnabled()) {
@@ -640,7 +660,7 @@ public abstract class AbstractPageObjectDetails<O extends ObjectType, ODM extend
     private PrismObject<O> loadPrismObject() {
         Task task = createSimpleTask(OPERATION_LOAD_OBJECT);
         OperationResult result = task.getResult();
-        PrismObject<O> prismObject;
+        PrismObject<O> prismObject = null;
         try {
             if (!isEditObject()) {
                 prismObject = getPrismContext().createObject(getType());
@@ -649,12 +669,19 @@ public abstract class AbstractPageObjectDetails<O extends ObjectType, ODM extend
                 prismObject = WebModelServiceUtils.loadObject(getType(), focusOid, getOperationOptions(), false, this, task, result);
                 LOGGER.trace("Loading object: Existing object (loadled): {} -> {}", focusOid, prismObject);
             }
+        } catch (RestartResponseException e) {
+            //ignore restart exception
         } catch (Exception ex) {
             result.recordFatalError(getString("PageAdminObjectDetails.message.loadObjectWrapper.fatalError"), ex);
             LoggingUtils.logUnexpectedException(LOGGER, "Couldn't load object", ex);
             throw redirectBackViaRestartResponseException();
         }
         result.computeStatusIfUnknown();
+        if (prismObject == null && result.isFatalError()) {
+            getSession().getFeedbackMessages().clear();
+            getSession().error(getString("PageAdminObjectDetails.message.loadObjectWrapper.fatalError"));
+            throw new RestartResponseException(PageError404.class);
+        }
         showResult(result, false);
         return prismObject;
     }

@@ -90,12 +90,9 @@ public class FocusOperationalButtonsPanel<F extends FocusType> extends Assignmen
             @Override
             public boolean isVisible() {
                 return WebComponentUtil.isAuthorized(AuthorizationConstants.AUTZ_UI_PREVIEW_CHANGES_URL)
-                        && !getModelObject().isReadOnly();
-            }
-
-            @Override
-            public boolean isEnabled() {
-                return isSavePreviewButtonEnabled();
+                        && !getModelObject().isReadOnly()
+                        && isObjectStatusAndAuthorizationVerifiedForModification(); //todo cannot use here save button visibility because of forcedPreview configuration
+                                                                                    //which acts in opposite ways for save and preview buttons
             }
         });
         preview.titleAsLabel(true);

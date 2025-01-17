@@ -22,6 +22,10 @@ import java.util.stream.StreamSupport;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.gui.impl.component.input.converter.DateConverter;
+import com.evolveum.midpoint.gui.impl.page.admin.focus.FocusDetailsModels;
+import com.evolveum.midpoint.web.page.admin.server.dto.ApprovalOutcomeIcon;
+
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -38,8 +42,9 @@ import org.apache.wicket.authroles.authorization.strategies.role.Roles;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.behavior.Behavior;
 import org.apache.wicket.core.request.handler.RenderPageRequestHandler;
-import org.apache.wicket.datetime.PatternDateConverter;
+import org.apache.wicket.extensions.markup.html.repeater.data.sort.SortOrder;
 import org.apache.wicket.extensions.markup.html.repeater.util.SortParam;
+import org.apache.wicket.extensions.markup.html.repeater.util.SortableDataProvider;
 import org.apache.wicket.extensions.markup.html.tabs.ITab;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.html.WebMarkupContainer;
@@ -68,6 +73,7 @@ import org.joda.time.format.DateTimeFormat;
 import com.evolveum.midpoint.authentication.api.authorization.AuthorizationAction;
 import com.evolveum.midpoint.authentication.api.authorization.PageDescriptor;
 import com.evolveum.midpoint.authentication.api.util.AuthUtil;
+import com.evolveum.midpoint.common.AvailableLocale;
 import com.evolveum.midpoint.common.LocalizationService;
 import com.evolveum.midpoint.gui.api.AdminLTESkin;
 import com.evolveum.midpoint.gui.api.GuiStyleConstants;
@@ -121,7 +127,6 @@ import com.evolveum.midpoint.prism.query.*;
 import com.evolveum.midpoint.prism.util.PolyStringUtils;
 import com.evolveum.midpoint.prism.xml.XmlTypeConverter;
 import com.evolveum.midpoint.repo.common.expression.ExpressionUtil;
-import com.evolveum.midpoint.repo.common.util.SubscriptionUtil.SubscriptionType;
 import com.evolveum.midpoint.schema.GetOperationOptions;
 import com.evolveum.midpoint.schema.ObjectDeltaOperation;
 import com.evolveum.midpoint.schema.SchemaConstantsGenerated;
@@ -247,6 +252,19 @@ public final class WebComponentUtil {
             LoggingUtils.logUnexpectedException(LOGGER, "Error while finishing task settings.", e);
             target.add(pageBase.getFeedbackPanel());
         }
+    }
+
+    public static IModel<String> createLocalizedModelForBoolean(Boolean object) {
+        return () -> {
+            String key;
+            if (object == null) {
+                key = KEY_BOOLEAN_NULL;
+            } else {
+                key = object ? KEY_BOOLEAN_TRUE : KEY_BOOLEAN_FALSE;
+            }
+
+            return com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(key);
+        };
     }
 
     public enum AssignmentOrder {
@@ -423,9 +441,14 @@ public final class WebComponentUtil {
             }
         }
         String key = localizableMessage.getKey() != null ? localizableMessage.getKey() : localizableMessage.getFallbackMessage();
+        String defaultValue = localizableMessage.getFallbackMessage();
+        if (defaultValue != null) {
+            defaultValue = defaultValue.replace('{', '(').replace('}', ')');
+        }
+
         StringResourceModel stringResourceModel = new StringResourceModel(key, component)
                 .setModel(new Model<String>())
-                .setDefaultValue(localizableMessage.getFallbackMessage())
+                .setDefaultValue(defaultValue)
                 .setParameters(resolveArguments(localizableMessage.getArgs(), component));
         //System.out.println("GUI: Resolving [" + key + "]: to [" + rv + "]");
         return stringResourceModel.getString();
@@ -1320,41 +1343,6 @@ public final class WebComponentUtil {
         return getValue(object.getValue(), propertyName, type);
     }
 
-    public static Locale getLocaleFromString(String localeString) {
-        if (localeString == null) {
-            return null;
-        }
-        localeString = localeString.trim();
-        if (localeString.toLowerCase().equals("default")) {
-            return Locale.getDefault();
-        }
-
-        // Extract language
-        int languageIndex = localeString.indexOf('_');
-        String language;
-        if (languageIndex == -1) {
-            // No further "_" so is "{language}" only
-            return new Locale(localeString, "");
-        } else {
-            language = localeString.substring(0, languageIndex);
-        }
-
-        // Extract country
-        int countryIndex = localeString.indexOf('_', languageIndex + 1);
-        String country;
-        if (countryIndex == -1) {
-            // No further "_" so is "{language}_{country}"
-            country = localeString.substring(languageIndex + 1);
-            return new Locale(language, country);
-        } else {
-            // Assume all remaining is the variant so is
-            // "{language}_{country}_{variant}"
-            country = localeString.substring(languageIndex + 1, countryIndex);
-            String variant = localeString.substring(countryIndex + 1);
-            return new Locale(language, country, variant);
-        }
-    }
-
     public static void encryptCredentials(ObjectDelta delta, boolean encrypt, MidPointApplication app) {
         if (delta == null || delta.isEmpty()) {
             return;
@@ -1554,7 +1542,7 @@ public final class WebComponentUtil {
         if (date == null) {
             return null;
         }
-        PatternDateConverter converter = new PatternDateConverter(getLocalizedDatePattern(style), true);
+        DateConverter converter = new DateConverter(getLocalizedDatePattern(style), true);
         return converter.convertToString(date, getCurrentLocale());
     }
 
@@ -1745,6 +1733,16 @@ public final class WebComponentUtil {
         long page = ((paging.getOffset() + itemsPerPage) / itemsPerPage) - 1;
         if (page < 0) {
             page = 0;
+        }
+
+        // update ordering (sortparam) directly in provider
+        if (paging.hasOrdering() && (table.getDataTable().getDataProvider() instanceof SortableDataProvider provider)) {
+            ItemPath path = paging.getPrimaryOrderingPath();
+            if (path != null) {
+                OrderDirection direction = paging.getPrimaryOrderingDirection();
+                SortOrder order = direction == OrderDirection.DESCENDING ? SortOrder.DESCENDING : SortOrder.ASCENDING;
+                provider.setSort(path.toString(), order);
+            }
         }
 
         table.getDataTable().setCurrentPage(page);
@@ -2067,16 +2065,7 @@ public final class WebComponentUtil {
 
             @Override
             public String getDisplayValue(Boolean object) {
-                String key;
-                if (object == null) {
-                    key = KEY_BOOLEAN_NULL;
-                } else {
-                    key = object ? KEY_BOOLEAN_TRUE : KEY_BOOLEAN_FALSE;
-                }
-
-                StringResourceModel model = PageBase.createStringResourceStatic(key);
-
-                return model.getString();
+                return WebComponentUtil.createLocalizedModelForBoolean(object).getObject();
             }
         };
 
@@ -2134,9 +2123,16 @@ public final class WebComponentUtil {
             if (StringUtils.isEmpty(templateOid)) {
                 return;
             }
-            String label = action.getDisplay() != null && PolyStringUtils.isNotEmpty(action.getDisplay().getLabel()) ?
-                    action.getDisplay().getLabel().getOrig() : action.getIdentifier();
-            menuItems.add(new InlineMenuItem(Model.of(label)) {
+
+            IModel<String> label = () -> {
+                DisplayType display = action.getDisplay();
+                if (display == null || display.getLabel() == null) {
+                    return action.getIdentifier();
+                }
+
+                return com.evolveum.midpoint.gui.api.util.LocalizationUtil.translatePolyString(display.getLabel());
+            };
+            menuItems.add(new InlineMenuItem(label) {
                 @Serial private static final long serialVersionUID = 1L;
 
                 @Override
@@ -2726,7 +2722,7 @@ public final class WebComponentUtil {
                 return null;
             }
             builder.setBasicIcon(actionButtonIcon, IconCssStyle.IN_ROW_STYLE)
-                    .appendColorHtmlValue(actionButtonIcon.getColor());
+                    .appendColorHtmlValue(GuiDisplayTypeUtil.removeStringAfterSemicolon(actionButtonIcon.getColor()));
             return builder;
         }
         DisplayType objectTypeDisplay = null;
@@ -2760,7 +2756,7 @@ public final class WebComponentUtil {
                     .appendLayerIcon(relationIcon, IconCssStyle.TOP_RIGHT_MAX_ICON_STYLE);
         } else {
             builder.setBasicIcon(actionButtonIcon, IconCssStyle.IN_ROW_STYLE)
-                    .appendColorHtmlValue(actionButtonIcon.getColor());
+                    .appendColorHtmlValue(GuiDisplayTypeUtil.removeStringAfterSemicolon(actionButtonIcon.getColor()));
         }
         return builder;
     }
@@ -2870,13 +2866,18 @@ public final class WebComponentUtil {
         return combinedRelationList;
     }
 
+    public static List<AssignmentObjectRelation> divideAssignmentRelationsByAllValues(
+            List<AssignmentObjectRelation> initialAssignmentRelationsList) {
+        return divideAssignmentRelationsByAllValues(initialAssignmentRelationsList, false);
+    }
+
     /**
      * The idea is to divide the list of AssignmentObjectRelation objects in such way that each AssignmentObjectRelation
      * in the list will contain not more than 1 relation, not more than 1 object type and not more than one archetype reference.
      * This will simplify creating of a new_assignment_button
      */
     public static List<AssignmentObjectRelation> divideAssignmentRelationsByAllValues(
-            List<AssignmentObjectRelation> initialAssignmentRelationsList, boolean isMemberAssignment) {
+            List<AssignmentObjectRelation> initialAssignmentRelationsList, boolean addDefaultObjectRelations) {
         if (initialAssignmentRelationsList == null) {
             return null;
         }
@@ -2886,7 +2887,7 @@ public final class WebComponentUtil {
             if (CollectionUtils.isNotEmpty(assignmentObjectRelation.getObjectTypes())) {
                 assignmentObjectRelation.getObjectTypes().forEach(objectType -> {
                     if (CollectionUtils.isNotEmpty(assignmentObjectRelation.getArchetypeRefs())) {
-                        if (isMemberAssignment) {
+                        if (addDefaultObjectRelations) {
                             //add at first type+relation combination without archetypeRef to cover default views (e.g. all users)
                             AssignmentObjectRelation defaultViewRelation = new AssignmentObjectRelation();
                             defaultViewRelation.setObjectTypes(Collections.singletonList(objectType));
@@ -2902,7 +2903,9 @@ public final class WebComponentUtil {
                             newRelation.setRelations(assignmentObjectRelation.getRelations());
                             newRelation.setArchetypeRefs(Collections.singletonList(archetypeRef));
                             newRelation.setDescription(assignmentObjectRelation.getDescription());
-                            resultList.add(newRelation);
+                            if (!assignmentObjectRelationAlreadyExists(resultList, newRelation)) {
+                                resultList.add(newRelation);
+                            }
                         });
                     } else {
                         AssignmentObjectRelation newRelation = new AssignmentObjectRelation();
@@ -2910,7 +2913,9 @@ public final class WebComponentUtil {
                         newRelation.setRelations(assignmentObjectRelation.getRelations());
                         newRelation.setArchetypeRefs(assignmentObjectRelation.getArchetypeRefs());
                         newRelation.setDescription(assignmentObjectRelation.getDescription());
-                        resultList.add(newRelation);
+                        if (!assignmentObjectRelationAlreadyExists(resultList, newRelation)) {
+                            resultList.add(newRelation);
+                        }
                     }
                 });
             } else {
@@ -2952,34 +2957,34 @@ public final class WebComponentUtil {
         for (AssignmentObjectRelation rel : list) {
             if (CollectionUtils.isNotEmpty(rel.getRelations()) && CollectionUtils.isEmpty(relation.getRelations())
                     || CollectionUtils.isEmpty(rel.getRelations()) && CollectionUtils.isNotEmpty(relation.getRelations())) {
-                return false;
+                continue;
             }
             if (CollectionUtils.isNotEmpty(rel.getRelations()) && CollectionUtils.isNotEmpty(relation.getRelations())) {
-                if (!rel.getRelations().get(0).equals(relation.getRelations().get(0))) {
-                    return false;
+                if (!QNameUtil.match(rel.getRelations().get(0), (relation.getRelations().get(0)))) {
+                    continue;
                 }
             }
             if (CollectionUtils.isNotEmpty(rel.getObjectTypes()) && CollectionUtils.isEmpty(relation.getObjectTypes())
                     || CollectionUtils.isEmpty(rel.getObjectTypes()) && CollectionUtils.isNotEmpty(relation.getObjectTypes())) {
-                return false;
+                continue;
             }
             if (CollectionUtils.isNotEmpty(rel.getObjectTypes()) && CollectionUtils.isNotEmpty(relation.getObjectTypes())) {
-                if (!rel.getObjectTypes().get(0).equals(relation.getObjectTypes().get(0))) {
-                    return false;
+                if (!QNameUtil.match(rel.getObjectTypes().get(0), relation.getObjectTypes().get(0))) {
+                    continue;
                 }
             }
             if (CollectionUtils.isNotEmpty(rel.getArchetypeRefs()) && CollectionUtils.isEmpty(relation.getArchetypeRefs())
                     || CollectionUtils.isEmpty(rel.getArchetypeRefs()) && CollectionUtils.isNotEmpty(relation.getArchetypeRefs())) {
-                return false;
+                continue;
             }
             if (CollectionUtils.isNotEmpty(rel.getArchetypeRefs()) && CollectionUtils.isNotEmpty(relation.getArchetypeRefs())) {
                 if (!rel.getArchetypeRefs().get(0).equals(relation.getArchetypeRefs().get(0))) {
-                    return false;
+                    continue;
                 }
             }
             return true;
         }
-        return true;
+        return false;
     }
 
     private static Collection<ObjectDeltaOperation<? extends ObjectType>> saveTask(ObjectDelta<TaskType> delta, OperationResult result, PageBase pageBase) {
@@ -3130,7 +3135,7 @@ public final class WebComponentUtil {
         pageBase.showResult(result);
     }
 
-    public static OperationResultStatusPresentationProperties caseOutcomeUriToIcon(String outcome) {
+    public static OperationResultStatusPresentationProperties caseOutcomeUriToPresentation(String outcome) {
         if (outcome == null) {
             return OperationResultStatusPresentationProperties.IN_PROGRESS;
         } else if (QNameUtil.matchUri(outcome, SchemaConstants.MODEL_APPROVAL_OUTCOME_APPROVE)) {
@@ -3139,6 +3144,20 @@ public final class WebComponentUtil {
             return OperationResultStatusPresentationProperties.FATAL_ERROR;
         } else {
             return OperationResultStatusPresentationProperties.UNKNOWN;
+        }
+    }
+
+    public static ApprovalOutcomeIcon caseOutcomeUriToIcon(String outcome) {
+        if (outcome == null) {
+            return ApprovalOutcomeIcon.IN_PROGRESS;
+        } else if (QNameUtil.matchUri(outcome, SchemaConstants.MODEL_APPROVAL_OUTCOME_APPROVE)) {
+            return ApprovalOutcomeIcon.APPROVED;
+        } else if (QNameUtil.matchUri(outcome, SchemaConstants.MODEL_APPROVAL_OUTCOME_REJECT)) {
+            return ApprovalOutcomeIcon.REJECTED;
+        } else if (QNameUtil.matchUri(outcome, SchemaConstants.MODEL_APPROVAL_OUTCOME_SKIP)) {
+            return ApprovalOutcomeIcon.SKIPPED;
+        } else {
+            return ApprovalOutcomeIcon.UNRECOGNIZED;
         }
     }
 
@@ -3152,8 +3171,7 @@ public final class WebComponentUtil {
             }
             return Collections.singletonList(
                     prismContext.queryFactory().createOrdering(
-                            ItemPath.create(new QName(SchemaConstantsGenerated.NS_COMMON, sortParam.getProperty())), order));
-
+                            ItemPath.fromString(sortParam.getProperty()), order));
         } else {
             return null;
         }
@@ -3280,8 +3298,7 @@ public final class WebComponentUtil {
     }
 
     public static String getMidpointCustomSystemName(PageAdminLTE pageBase, String defaultSystemNameKey) {
-        SubscriptionType subscriptionType = MidPointApplication.get().getSubscriptionType();
-        if (!subscriptionType.isCorrect() || subscriptionType == SubscriptionType.DEMO_SUBSCRIPTION) {
+        if (MidPointApplication.get().getSubscriptionState().isInactiveOrDemo()) {
             return pageBase.createStringResource(defaultSystemNameKey).getString();
         }
 
@@ -3442,10 +3459,14 @@ public final class WebComponentUtil {
         return CollectionUtils.isNotEmpty(archetypeAssignments);
     }
 
+    /**
+     * @deprecated Use {@link com.evolveum.midpoint.gui.api.util.LocalizationUtil#findLocale()}
+     */
+    @Deprecated
     public static <F extends FocusType> Locale getLocale() {
         GuiProfiledPrincipal principal = AuthUtil.getPrincipalUser();
         if (principal == null) {
-            return MidPointApplication.getDefaultLocale();
+            return AvailableLocale.getDefaultLocale();
         }
 
         Locale locale;
@@ -3460,17 +3481,18 @@ public final class WebComponentUtil {
 
         if (locale == null) {
             if (ThreadContext.getSession() == null) {
-                return MidPointApplication.getDefaultLocale();
+                return AvailableLocale.getDefaultLocale();
             }
 
             locale = Session.get().getLocale();
         }
 
-        if (MidPointApplication.containsLocale(locale)) {
+        locale = AvailableLocale.getBestMatchingLocale(locale);
+        if (locale != null) {
             return locale;
         }
 
-        return MidPointApplication.getDefaultLocale();
+        return AvailableLocale.getDefaultLocale();
     }
 
     public static Collator getCollator() {
@@ -3604,7 +3626,9 @@ public final class WebComponentUtil {
         } catch (Exception e) {
             LOGGER.error("Couldn't execute expression " + expression, e);
             if (modelServiceLocator instanceof PageBase) {
-                ((PageBase) modelServiceLocator).error(PageBase.createStringResourceStatic("FilterSearchItem.message.error.evaluateAllowedValuesExpression", expression).getString());
+                ((PageBase) modelServiceLocator).error(
+                        com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(
+                                "FilterSearchItem.message.error.evaluateAllowedValuesExpression", new Object[] { expression }));
             }
             return allowedValues;
         }
@@ -3615,7 +3639,9 @@ public final class WebComponentUtil {
         if (!(value instanceof Set)) {
             LOGGER.error("Exception return unexpected type, expected Set<PPV<DisplayableValue>>, but was " + (value == null ? null : value.getClass()));
             if (modelServiceLocator instanceof PageBase) {
-                ((PageBase) modelServiceLocator).error(PageBase.createStringResourceStatic("FilterSearchItem.message.error.wrongType", expression).getString());
+                ((PageBase) modelServiceLocator).error(
+                        com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(
+                                "FilterSearchItem.message.error.wrongType", new Object[] { expression }));
             }
             return allowedValues;
         }
@@ -3625,7 +3651,9 @@ public final class WebComponentUtil {
                     || !(((PrismPropertyValue) (((Set<?>) value).iterator().next())).getValue() instanceof DisplayableValue)) {
                 LOGGER.error("Exception return unexpected type, expected Set<PPV<DisplayableValue>>, but was " + (value == null ? null : value.getClass()));
                 if (modelServiceLocator instanceof PageBase) {
-                    ((PageBase) modelServiceLocator).error(PageBase.createStringResourceStatic("FilterSearchItem.message.error.wrongType", expression).getString());
+                    ((PageBase) modelServiceLocator).error(
+                            com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(
+                                    "FilterSearchItem.message.error.wrongType", new Object[] { expression }));
                 }
                 return allowedValues;
             }
@@ -3767,6 +3795,11 @@ public final class WebComponentUtil {
             try {
                 Panel panel = ConstructorUtils.invokeConstructor(panelClass, markupId, objectDetailsModels.getObjectWrapperModel(), panelConfig);
                 panel.setOutputMarkupId(true);
+
+                var isHistoricalData = objectDetailsModels instanceof FocusDetailsModels<?>
+                        && ((FocusDetailsModels<?>) objectDetailsModels).isHistoricalObject();
+                ((AbstractAssignmentTypePanel) panel).setHistoricalData(isHistoricalData);
+
                 return panel;
             } catch (Throwable e) {
                 LOGGER.trace("No constructor found for (String, LoadableModel, ContainerPanelConfigurationType). Continue with lookup.", e);
@@ -3930,17 +3963,15 @@ public final class WebComponentUtil {
     private static void createToastForObject(String key, QName type, AjaxRequestTarget target) {
         new Toast()
                 .success()
-                .title(PageBase.createStringResourceStatic(
-                                key,
-                                (Object) translateMessage(ObjectTypeUtil.createTypeDisplayInformation(type, true)))
-                        .getString())
+                .title(com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(
+                        key,
+                        new Object[] { translateMessage(ObjectTypeUtil.createTypeDisplayInformation(type, true)) }))
                 .icon("fas fa-circle-check")
                 .autohide(true)
                 .delay(5_000)
-                .body(PageBase.createStringResourceStatic(
-                                key + ".text",
-                                (Object) translateMessage(ObjectTypeUtil.createTypeDisplayInformation(type, false)))
-                        .getString())
+                .body(com.evolveum.midpoint.gui.api.util.LocalizationUtil.translate(
+                        key + ".text",
+                        new Object[] { translateMessage(ObjectTypeUtil.createTypeDisplayInformation(type, false)) }))
                 .show(target);
     }
 

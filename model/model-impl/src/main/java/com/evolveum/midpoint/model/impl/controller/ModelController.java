@@ -21,7 +21,7 @@ import com.evolveum.midpoint.cases.api.util.QueryUtils;
 import com.evolveum.midpoint.model.api.BulkActionExecutionOptions;
 import com.evolveum.midpoint.model.impl.scripting.BulkActionsExecutor;
 import com.evolveum.midpoint.schema.config.ExecuteScriptConfigItem;
-import com.evolveum.midpoint.schema.util.AccessCertificationWorkItemId;
+import com.evolveum.midpoint.schema.util.*;
 import com.evolveum.midpoint.model.impl.simulation.ProcessedObjectImpl;
 
 import com.evolveum.midpoint.security.api.SecurityUtil;
@@ -31,6 +31,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 
 import com.evolveum.midpoint.audit.api.AuditEventRecord;
@@ -77,9 +78,6 @@ import com.evolveum.midpoint.schema.processor.ResourceSchema;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.result.OperationResultRunner;
 import com.evolveum.midpoint.schema.result.OperationResultStatus;
-import com.evolveum.midpoint.schema.util.ObjectQueryUtil;
-import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
-import com.evolveum.midpoint.schema.util.WorkItemId;
 import com.evolveum.midpoint.schema.util.cases.ApprovalUtils;
 import com.evolveum.midpoint.security.api.SecurityContextManager;
 import com.evolveum.midpoint.security.enforcer.api.AuthorizationParameters;
@@ -117,6 +115,7 @@ import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
  * Note: don't autowire this bean by implementing class (ModelController), as it is proxied by Spring AOP.
  * Use its interfaces instead.
  */
+@DependsOn("taskManagerInitializer")    // not very nice of telling that we depend on TaskManager and other related beans
 @Component
 public class ModelController implements ModelService, TaskService, CaseService, BulkActionsService, AccessCertificationService {
 
@@ -125,6 +124,7 @@ public class ModelController implements ModelService, TaskService, CaseService, 
     static final String RESOLVE_REFERENCE = CLASS_NAME_WITH_DOT + "resolveReference";
     private static final String OP_APPLY_PROVISIONING_DEFINITION = CLASS_NAME_WITH_DOT + "applyProvisioningDefinition";
     static final String OP_REEVALUATE_SEARCH_FILTERS = CLASS_NAME_WITH_DOT + "reevaluateSearchFilters";
+    static final String OP_AUTHORIZE_CHANGE_EXECUTION_START = CLASS_NAME_WITH_DOT + "authorizeChangeExecutionStart";
 
     private static final int OID_GENERATION_ATTEMPTS = 5;
 
@@ -153,6 +153,7 @@ public class ModelController implements ModelService, TaskService, CaseService, 
     @Autowired private ObjectMerger objectMerger;
     @Autowired private SystemObjectCache systemObjectCache;
     @Autowired private ClockworkMedic clockworkMedic;
+    @Autowired private ClockworkAuditHelper clockworkAuditHelper;
     @Autowired private EventDispatcher dispatcher;
     @Autowired
     @Qualifier("cacheRepositoryService")
@@ -269,7 +270,10 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             // 3) for MODIFY operation: filters contained in deltas -> these have to be treated here, because if OID is missing from such a delta, the change would be rejected by the repository
             if (ModelExecuteOptions.isReevaluateSearchFilters(options)) {
                 for (ObjectDelta<? extends ObjectType> delta : deltas) {
-                    ModelImplUtils.resolveReferences(delta, cacheRepositoryService, false, true, EvaluationTimeType.IMPORT, true, result);
+                    ModelImplUtils.resolveReferences(
+                            delta, cacheRepositoryService,
+                            false, true, EvaluationTimeType.IMPORT,
+                            true, result);
                 }
             } else if (ModelExecuteOptions.isIsImport(options)) {
                 // if plain import is requested, we simply evaluate filters in ADD operation (and we do not force reevaluation if OID is already set)
@@ -334,7 +338,7 @@ public class ModelController implements ModelService, TaskService, CaseService, 
 
         LensContext<? extends ObjectType> context = contextFactory.createContext(deltas, options, task, result);
 
-        authorizePartialExecution(context, options, task, result);
+        authorizeExecutionStart(context, options, task, result);
 
         if (ModelExecuteOptions.isReevaluateSearchFilters(options)) {
             String m = "ReevaluateSearchFilters option is not fully supported for non-raw operations yet. "
@@ -419,16 +423,50 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         }
     }
 
-    private void authorizePartialExecution(LensContext<? extends ObjectType> context,
-            ModelExecuteOptions options, Task task, OperationResult result)
-            throws SecurityViolationException, SchemaException, ObjectNotFoundException,
-            ExpressionEvaluationException, CommunicationException, ConfigurationException {
-        PartialProcessingOptionsType partialProcessing = ModelExecuteOptions.getPartialProcessing(options);
-        if (partialProcessing != null) {
-            PrismObject<? extends ObjectType> object = context.getFocusContext().getObjectAny();
-            securityEnforcer.authorize(
-                    ModelAuthorizationAction.PARTIAL_EXECUTION.getUrl(),
-                    null, AuthorizationParameters.Builder.buildObject(object), task, result);
+    /**
+     * This is not a complete authorization! Here we just check if the user is roughly authorized to request the operation
+     * to be started, along with authorization for partial processing.
+     */
+    private void authorizeExecutionStart(
+            LensContext<? extends ObjectType> context, ModelExecuteOptions options, Task task, OperationResult parentResult)
+            throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
+            ConfigurationException, ObjectNotFoundException {
+        List<String> relevantActions = List.of(
+                ModelAuthorizationAction.ADD.getUrl(),
+                ModelAuthorizationAction.MODIFY.getUrl(),
+                ModelAuthorizationAction.DELETE.getUrl(),
+                ModelAuthorizationAction.RECOMPUTE.getUrl(),
+                ModelAuthorizationAction.ASSIGN.getUrl(),
+                ModelAuthorizationAction.UNASSIGN.getUrl(),
+                ModelAuthorizationAction.DELEGATE.getUrl(),
+                ModelAuthorizationAction.CHANGE_CREDENTIALS.getUrl());
+        var result = parentResult.createSubresult(OP_AUTHORIZE_CHANGE_EXECUTION_START);
+        try {
+            // We do not need to check both phases here: normally, only REQUEST should be needed.
+            // (For example, the #assign operation is relevant for the EXECUTION phase.)
+            var phase = context.isExecutionPhaseOnly() ? AuthorizationPhaseType.EXECUTION : AuthorizationPhaseType.REQUEST;
+            if (!securityEnforcer.hasAnyAllowAuthorization(relevantActions, phase)) {
+                throw new SecurityViolationException("Not authorized to request execution of changes");
+            }
+            PartialProcessingOptionsType partialProcessing = ModelExecuteOptions.getPartialProcessing(options);
+            if (partialProcessing != null) {
+                // TODO Note that the information about the object may be incomplete (orgs, tenants, roles) or even missing.
+                //  See MID-9454, MID-9477.
+                LensFocusContext<? extends ObjectType> focusContext = context.getFocusContext();
+                var autzParams =
+                        focusContext != null ?
+                                AuthorizationParameters.Builder.buildObject(focusContext.getObjectAny()) :
+                                AuthorizationParameters.EMPTY;
+                securityEnforcer.authorize(
+                        ModelAuthorizationAction.PARTIAL_EXECUTION.getUrl(),
+                        phase, autzParams, task, result);
+            }
+        } catch (Throwable t) {
+            result.recordException(t);
+            clockworkAuditHelper.auditRequestDenied(context, task, result, parentResult);
+            throw t;
+        } finally {
+            result.close();
         }
     }
 
@@ -469,12 +507,8 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             // Not using read-only for now
             //noinspection unchecked
             focus = objectResolver.getObject(type, oid, null, task, result).asPrismContainer();
-            LOGGER.debug("Recomputing {}", focus);
 
-            LensContext<F> lensContext = contextFactory.createRecomputeContext(focus, options, task, result);
-            LOGGER.trace("Recomputing {}, context:\n{}", focus, lensContext.debugDumpLazily());
-
-            clockwork.run(lensContext, task, result);
+            executeRecompute(focus, options, task, result);
 
         } catch (Throwable t) {
             ModelImplUtils.recordException(result, t);
@@ -486,6 +520,26 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         }
 
         LOGGER.trace("Recomputing of {}: {}", focus, result.getStatus());
+    }
+
+    /** Generally useful convenience method. */
+    public <F extends ObjectType> void executeRecompute(
+            @NotNull PrismObject<F> focus,
+            @Nullable ModelExecuteOptions options,
+            @NotNull Task task,
+            @NotNull OperationResult result)
+            throws SchemaException, ExpressionEvaluationException, CommunicationException, ConfigurationException,
+            ObjectNotFoundException, SecurityViolationException, PolicyViolationException, ObjectAlreadyExistsException {
+        LOGGER.debug("Recomputing {}", focus);
+        LensContext<F> lensContext = contextFactory.createRecomputeContext(focus, options, task, result);
+
+        securityEnforcer.authorize(
+                ModelAuthorizationAction.RECOMPUTE.getUrl(), AuthorizationPhaseType.REQUEST,
+                AuthorizationParameters.forObject(focus.asObjectable()),
+                SecurityEnforcer.Options.create(), task, result);
+
+        LOGGER.trace("Recomputing {}, context:\n{}", focus, lensContext.debugDumpLazily());
+        clockwork.run(lensContext, task, result);
     }
 
     private void applyDefinitions(
@@ -561,9 +615,12 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             ObjectManager searchProvider = getObjectManager(type, options);
             result.addArbitraryObjectAsParam("searchProvider", searchProvider);
 
+            if (checkNoneFilterBeforeAutz(query)) {
+                return SearchResultList.empty();
+            }
             ObjectQuery processedQuery = preProcessQuerySecurity(type, query, rootOptions, task, result);
-            if (isFilterNone(processedQuery, result)) {
-                return new SearchResultList<>(new ArrayList<>());
+            if (checkNoneFilterAfterAutz(processedQuery, result)) {
+                return SearchResultList.empty();
             }
 
             enterModelMethod(); // outside try-catch because if this ends with an exception, cache is not entered yet
@@ -744,14 +801,18 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             var parsedOptions = preProcessOptionsSecurity(rawOptionsReadWrite, task, result);
             var options = parsedOptions.getCollection();
 
+            if (checkNoneFilterBeforeAutz(origQuery)) {
+                return SearchResultList.empty();
+            }
+
             var ctx = new ContainerSearchLikeOpContext<>(type, origQuery, parsedOptions, task, result);
 
             GetOperationOptions rootOptions = parsedOptions.getRootOptions();
 
             ObjectQuery query = ctx.securityRestrictedQuery;
 
-            if (isFilterNone(query, result)) {
-                return new SearchResultList<>(new ArrayList<>());
+            if (checkNoneFilterAfterAutz(query, result)) {
+                return SearchResultList.empty();
             }
 
             enterModelMethod(); // outside try-catch because if this ends with an exception, cache is not entered yet
@@ -824,15 +885,17 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             var parsedOptions = preProcessOptionsSecurity(rawOptionsReadWrite, task, result);
             var options = parsedOptions.getCollection();
 
+            if (checkNoneFilterBeforeAutz(query)) {
+                return null;
+            }
+
             var ctx = new ContainerSearchLikeOpContext<>(type, origQuery, parsedOptions, task, result);
 
             GetOperationOptions rootOptions = parsedOptions.getRootOptions();
 
             ObjectQuery processedQuery = ctx.securityRestrictedQuery;
 
-
-            if (isFilterNone(processedQuery, result)) {
-                LOGGER.trace("Skipping search because filter is NONE");
+            if (checkNoneFilterAfterAutz(processedQuery, result)) {
                 return null;
             }
 
@@ -914,10 +977,14 @@ public class ModelController implements ModelService, TaskService, CaseService, 
 
         try {
             var parsedOptions = preProcessOptionsSecurity(rawOptions, task, result);
+
+            if (checkNoneFilterBeforeAutz(query)) {
+                return 0;
+            }
             var ctx = new ContainerSearchLikeOpContext<>(type, query, parsedOptions, task, result);
             query = ctx.securityRestrictedQuery;
 
-            if (isFilterNone(query, result)) {
+            if (checkNoneFilterAfterAutz(query, result)) {
                 return 0;
             }
 
@@ -947,10 +1014,18 @@ public class ModelController implements ModelService, TaskService, CaseService, 
 
     // See MID-6323 in Jira
 
-    private boolean isFilterNone(ObjectQuery query, OperationResult result) {
-        if (query != null && query.getFilter() != null && query.getFilter() instanceof NoneFilter) {
-            LOGGER.trace("Security denied the search");
-            result.recordStatus(OperationResultStatus.NOT_APPLICABLE, "Denied");
+    private boolean checkNoneFilterBeforeAutz(ObjectQuery query) {
+        if (ObjectQueryUtil.isNoneQuery(query)) {
+            LOGGER.trace("Skipping the search/count operation, as the NONE filter was requested");
+            return true;
+        }
+        return false;
+    }
+
+    private boolean checkNoneFilterAfterAutz(ObjectQuery query, OperationResult result) {
+        if (ObjectQueryUtil.isNoneQuery(query)) {
+            LOGGER.trace("Security denied the search/coount operation");
+            result.setNotApplicable("Denied"); // TODO really do we want "not applicable" here?
             return true;
         }
         return false;
@@ -1000,10 +1075,13 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             ObjectManager searchProvider = getObjectManager(type, options);
             result.addArbitraryObjectAsParam("searchProvider", searchProvider);
 
+            if (checkNoneFilterBeforeAutz(query)) {
+                return null;
+            }
+
             // see MID-6115
             ObjectQuery processedQuery = preProcessQuerySecurity(type, query, rootOptions, task, result);
-            if (isFilterNone(processedQuery, result)) {
-                LOGGER.trace("Skipping search because filter is NONE");
+            if (checkNoneFilterAfterAutz(processedQuery, result)) {
                 return null;
             }
 
@@ -1109,26 +1187,22 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             var rootOptions = parsedOptions.getRootOptions();
             var options = parsedOptions.getCollection();
 
+            if (checkNoneFilterBeforeAutz(query)) {
+                return 0;
+            }
+
             ObjectQuery processedQuery = preProcessQuerySecurity(type, query, rootOptions, task, result);
-            if (isFilterNone(processedQuery, result)) {
-                LOGGER.trace("Skipping count because filter is NONE");
+            if (checkNoneFilterAfterAutz(processedQuery, result)) {
                 return 0;
             }
 
             ObjectManager objectManager = getObjectManager(type, options);
-            switch (objectManager) {
-                case PROVISIONING:
-                    count = provisioning.countObjects(type, processedQuery, options, task, parentResult);
-                    break;
-                case REPOSITORY:
-                    count = cacheRepositoryService.countObjects(type, processedQuery, options, parentResult);
-                    break;
-                case TASK_MANAGER:
-                    count = taskManager.countObjects(type, processedQuery, parentResult);
-                    break;
-                default:
-                    throw new AssertionError("Unexpected objectManager: " + objectManager);
-            }
+            count = switch (objectManager) {
+                case PROVISIONING -> provisioning.countObjects(type, processedQuery, options, task, parentResult);
+                case REPOSITORY -> cacheRepositoryService.countObjects(type, processedQuery, options, parentResult);
+                case TASK_MANAGER -> taskManager.countObjects(type, processedQuery, parentResult);
+                default -> throw new AssertionError("Unexpected objectManager: " + objectManager);
+            };
         } catch (Throwable t) {
             ModelImplUtils.recordException(result, t);
             throw t;
@@ -1208,10 +1282,14 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             var parsedOptions = preProcessOptionsSecurity(rawOptions, task, result);
             var options = parsedOptions.getCollection();
 
+            if (checkNoneFilterBeforeAutz(query)) {
+                return SearchResultList.empty();
+            }
+
             query = preProcessReferenceQuerySecurity(query, task, result); // TODO not implemented yet!
 
-            if (isFilterNone(query, result)) {
-                return new SearchResultList<>(new ArrayList<>());
+            if (checkNoneFilterAfterAutz(query, result)) {
+                return SearchResultList.empty();
             }
 
             SearchResultList<ObjectReferenceType> list;
@@ -1245,16 +1323,20 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         Objects.requireNonNull(query, "Query must be provided for reference search");
         Validate.notNull(parentResult, "Result type must not be null.");
 
-        OperationResult operationResult = parentResult.createSubresult(COUNT_REFERENCES)
+        OperationResult result = parentResult.createSubresult(COUNT_REFERENCES)
                 .addParam(OperationResult.PARAM_QUERY, query);
 
         try {
-            var parsedOptions = preProcessOptionsSecurity(rawOptions, task, operationResult);
+            var parsedOptions = preProcessOptionsSecurity(rawOptions, task, result);
             var options = parsedOptions.getCollection();
 
-            query = preProcessReferenceQuerySecurity(query, task, operationResult); // TODO not implemented yet!
+            if (checkNoneFilterBeforeAutz(query)) {
+                return 0;
+            }
 
-            if (isFilterNone(query, operationResult)) {
+            query = preProcessReferenceQuerySecurity(query, task, result); // TODO not implemented yet!
+
+            if (checkNoneFilterAfterAutz(query, result)) {
                 return 0;
             }
 
@@ -1262,16 +1344,16 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             try {
                 logQuery(query);
 
-                return cacheRepositoryService.countReferences(query, options, operationResult);
+                return cacheRepositoryService.countReferences(query, options, result);
             } catch (RuntimeException e) {
-                recordSearchException(e, ObjectManager.REPOSITORY, operationResult);
+                recordSearchException(e, ObjectManager.REPOSITORY, result);
                 throw e;
             } finally {
                 exitModelMethod();
             }
         } finally {
-            operationResult.close();
-            operationResult.cleanup();
+            result.close();
+            result.cleanup();
         }
     }
 
@@ -1295,16 +1377,18 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         OP_LOGGER.trace("MODEL OP enter searchReferencesIterative({}, {})", query, rawOptions);
 
         ModelImplUtils.validatePaging(query.getPaging());
-        OperationResult operationResult = parentResult.createSubresult(SEARCH_REFERENCES)
+        OperationResult result = parentResult.createSubresult(SEARCH_REFERENCES)
                 .addParam(OperationResult.PARAM_QUERY, query);
 
         try {
-            var parsedOptions = preProcessOptionsSecurity(rawOptions, task, operationResult);
+            var parsedOptions = preProcessOptionsSecurity(rawOptions, task, result);
             var options = parsedOptions.getCollection();
 
-            ObjectQuery processedQuery = preProcessReferenceQuerySecurity(query, task, operationResult); // TODO not implemented yet!
-            if (isFilterNone(processedQuery, operationResult)) {
-                LOGGER.trace("Skipping search because filter is NONE");
+            if (checkNoneFilterBeforeAutz(query)) {
+                return null;
+            }
+            ObjectQuery processedQuery = preProcessReferenceQuerySecurity(query, task, result); // TODO not implemented yet!
+            if (checkNoneFilterAfterAutz(processedQuery, result)) {
                 return null;
             }
 
@@ -1329,9 +1413,9 @@ public class ModelController implements ModelService, TaskService, CaseService, 
                 logQuery(processedQuery);
 
                 metadata = cacheRepositoryService.searchReferencesIterative(
-                        processedQuery, internalHandler, options, operationResult);
+                        processedQuery, internalHandler, options, result);
             } catch (SchemaException | RuntimeException e) {
-                recordSearchException(e, ObjectManager.REPOSITORY, operationResult);
+                recordSearchException(e, ObjectManager.REPOSITORY, result);
                 throw e;
             } finally {
                 exitModelMethodNoRepoCache();
@@ -1339,20 +1423,22 @@ public class ModelController implements ModelService, TaskService, CaseService, 
 
             return metadata;
         } finally {
-            operationResult.close();
-            operationResult.cleanup();
+            result.close();
+            result.cleanup();
         }
     }
     // endregion
 
     @Override
     public OperationResult testResource(String resourceOid, Task task, OperationResult result)
-            throws ObjectNotFoundException, SchemaException, ConfigurationException {
+            throws ObjectNotFoundException, SchemaException, ConfigurationException, ExpressionEvaluationException,
+            CommunicationException, SecurityViolationException {
         Validate.notEmpty(resourceOid, "Resource oid must not be null or empty.");
         LOGGER.trace("Testing resource OID: {}", resourceOid);
 
         enterModelMethod();
         try {
+            authorizeResourceOperation(ModelAuthorizationAction.TEST, resourceOid, task, result);
             OperationResult testResult = provisioning.testResource(resourceOid, task, result);
             LOGGER.debug("Finished testing resource OID: {}, result: {} ", resourceOid, testResult.getStatus());
             LOGGER.trace("Test result:\n{}", lazy(() -> testResult.dump(false)));
@@ -1364,6 +1450,21 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         } finally {
             exitModelMethod();
         }
+    }
+
+    private ResourceType authorizeResourceOperation(
+            @NotNull ModelAuthorizationAction action, @NotNull String resourceOid,
+            @NotNull Task task, @NotNull OperationResult result)
+            throws SchemaException, ExpressionEvaluationException, CommunicationException, SecurityViolationException,
+            ConfigurationException, ObjectNotFoundException {
+        // Retrieved in full in order to evaluate the authorization
+        var fullResource = provisioning.getObject(ResourceType.class, resourceOid, createReadOnlyCollection(), task, result);
+        securityEnforcer.authorize(
+                action.getUrl(),
+                null,
+                AuthorizationParameters.forObject(fullResource.asObjectable()),
+                task, result);
+        return fullResource.asObjectable();
     }
 
     @Override
@@ -1475,10 +1576,8 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         result.addArbitraryObjectAsParam(OperationResult.PARAM_TASK, task);
         // TODO: add context to the result
 
-        // Fetch resource definition from the repo/provisioning
-        ResourceType resource;
         try {
-            resource = getObject(ResourceType.class, resourceOid, createReadOnlyCollection(), task, result).asObjectable();
+            var resource = authorizeResourceOperation(ModelAuthorizationAction.IMPORT_FROM_RESOURCE, resourceOid, task, result);
 
             // Here was a check on synchronization configuration, providing a warning if there is no configuration set up.
             // But with changes in 4.6 it is not so easy to definitely tell that there's no synchronization set up,
@@ -1518,6 +1617,11 @@ public class ModelController implements ModelService, TaskService, CaseService, 
         // TODO: add context to the result
 
         try {
+            // fetching the shadow just to get the resource OID (for the authorization)
+            var shadow = cacheRepositoryService.getObject(ShadowType.class, shadowOid, null, result);
+            var resourceOid = ShadowUtil.getResourceOidRequired(shadow.asObjectable());
+            authorizeResourceOperation(ModelAuthorizationAction.IMPORT_FROM_RESOURCE, resourceOid, task, result);
+
             importFromResourceLauncher.importSingleShadow(shadowOid, task, result);
         } catch (Throwable t) {
             ModelImplUtils.recordException(result, t);
@@ -2534,6 +2638,8 @@ public class ModelController implements ModelService, TaskService, CaseService, 
             PrismObject<ShadowType> oldRepoShadow = getOldRepoShadow(changeDescription, task, result);
             PrismObject<ShadowType> resourceObject = getResourceObject(changeDescription);
             ObjectDelta<ShadowType> objectDelta = getObjectDelta(changeDescription, result);
+
+            securityEnforcer.authorize(ModelAuthorizationAction.NOTIFY_CHANGE.getUrl(), task, result);
 
             ExternalResourceEvent event = new ExternalResourceEvent(objectDelta, resourceObject,
                     oldRepoShadow, changeDescription.getChannel());

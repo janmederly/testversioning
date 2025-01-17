@@ -12,16 +12,18 @@ import static com.evolveum.midpoint.schema.util.CertCampaignTypeUtil.norm;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Table;
 import jakarta.persistence.*;
 import javax.xml.datatype.XMLGregorianCalendar;
 
-import org.hibernate.annotations.ForeignKey;
 import org.hibernate.annotations.*;
 
 import com.evolveum.midpoint.repo.sql.data.RepositoryContext;
-import com.evolveum.midpoint.repo.sql.data.common.embedded.REmbeddedReference;
+import com.evolveum.midpoint.repo.sql.data.common.embedded.RSimpleEmbeddedReference;
 import com.evolveum.midpoint.repo.sql.data.common.id.RCertWorkItemId;
 import com.evolveum.midpoint.repo.sql.query.definition.*;
 import com.evolveum.midpoint.repo.sql.type.XMLGregorianCalendarType;
@@ -51,7 +53,7 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
     private Integer iteration;
     private Integer stageNumber;
     private Set<RCertWorkItemReference> assigneeRef = new HashSet<>();
-    private REmbeddedReference performerRef;
+    private RSimpleEmbeddedReference performerRef;
     private String outcome;
     private XMLGregorianCalendar outputChangeTimestamp;
     private XMLGregorianCalendar closeTimestamp;
@@ -60,6 +62,7 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
     }
 
     // ridiculous name, but needed in order to match case.owner_oid
+    @Id
     @Override
     @Column(name = "owner_owner_oid", length = RUtil.COLUMN_LENGTH_OID, nullable = false)
     //@OwnerIdGetter()            // this is not a single-valued owner id
@@ -73,11 +76,16 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
     }
 
     @Override
-    @Id
-    @ForeignKey(name = "fk_acc_cert_wi_owner")
-    @MapsId("owner")
+    @MapsId
     @ManyToOne(fetch = FetchType.LAZY)
     @OwnerGetter(ownerClass = RAccessCertificationCase.class)
+    @JoinColumns(
+            value = {
+                    @JoinColumn(name = "owner_owner_oid", referencedColumnName = "owner_oid"),
+                    @JoinColumn(name = "owner_id", referencedColumnName = "id")
+            },
+            foreignKey = @ForeignKey(name = "fk_acc_cert_wi_owner")
+    )
     public RAccessCertificationCase getOwner() {
         return owner;
     }
@@ -91,6 +99,7 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
         }
     }
 
+    @Id
     @Override
     @Column(name = "owner_id", length = RUtil.COLUMN_LENGTH_OID, nullable = false)
     //@OwnerIdGetter()            // this is not a single-valued owner id
@@ -137,9 +146,8 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
     }
 
     @JaxbName(localPart = "assigneeRef")
-    @OneToMany(mappedBy = "owner", orphanRemoval = true)
-    @ForeignKey(name = "none")
-    @Cascade({ org.hibernate.annotations.CascadeType.ALL })
+    @OneToMany(mappedBy = "owner", orphanRemoval = true, cascade = CascadeType.ALL)
+    @org.hibernate.annotations.ForeignKey(name = "none")
     public Set<RCertWorkItemReference> getAssigneeRef() {
         return assigneeRef;
     }
@@ -149,11 +157,11 @@ public class RAccessCertificationWorkItem implements L2Container<RAccessCertific
     }
 
     @Column
-    public REmbeddedReference getPerformerRef() {
+    public RSimpleEmbeddedReference getPerformerRef() {
         return performerRef;
     }
 
-    public void setPerformerRef(REmbeddedReference performerRef) {
+    public void setPerformerRef(RSimpleEmbeddedReference performerRef) {
         this.performerRef = performerRef;
     }
 

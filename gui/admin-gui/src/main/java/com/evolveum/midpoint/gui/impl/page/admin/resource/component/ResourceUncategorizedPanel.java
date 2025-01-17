@@ -12,6 +12,7 @@ import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
 import com.evolveum.midpoint.gui.impl.component.button.ReloadableButton;
 import com.evolveum.midpoint.gui.impl.component.data.provider.SelectableBeanObjectDataProvider;
 import com.evolveum.midpoint.gui.impl.component.search.CollectionPanelType;
+import com.evolveum.midpoint.gui.impl.component.search.Search;
 import com.evolveum.midpoint.gui.impl.component.search.SearchContext;
 import com.evolveum.midpoint.gui.impl.page.admin.AbstractObjectMainPanel;
 import com.evolveum.midpoint.gui.impl.page.admin.abstractrole.component.TaskAwareExecutor;
@@ -26,6 +27,7 @@ import com.evolveum.midpoint.schema.GetOperationOptionsBuilder;
 import com.evolveum.midpoint.schema.SelectorOptions;
 import com.evolveum.midpoint.schema.util.ObjectQueryUtil;
 import com.evolveum.midpoint.task.api.Task;
+import com.evolveum.midpoint.util.QNameUtil;
 import com.evolveum.midpoint.web.application.PanelDisplay;
 import com.evolveum.midpoint.web.application.PanelInstance;
 import com.evolveum.midpoint.web.application.PanelType;
@@ -34,14 +36,17 @@ import com.evolveum.midpoint.web.component.input.DropDownChoicePanel;
 import com.evolveum.midpoint.web.component.input.ResourceObjectClassChoiceRenderer;
 import com.evolveum.midpoint.web.component.menu.cog.InlineMenuItem;
 import com.evolveum.midpoint.web.component.util.SelectableBean;
+import com.evolveum.midpoint.web.component.util.SerializableSupplier;
 import com.evolveum.midpoint.web.component.util.VisibleBehaviour;
 import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
 import com.evolveum.midpoint.web.page.admin.resources.SynchronizationTaskFlavor;
 import com.evolveum.midpoint.web.page.admin.shadows.ShadowTablePanel;
 import com.evolveum.midpoint.web.session.PageStorage;
+import com.evolveum.midpoint.web.session.ResourceContentStorage;
 import com.evolveum.midpoint.web.session.UserProfileStorage;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.wicket.Component;
 import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -90,10 +95,13 @@ public class ResourceUncategorizedPanel extends AbstractObjectMainPanel<Resource
     }
 
     private void createObjectTypeChoice() {
+        QName defaultObjectClass = getDefaultObjectClass();
+        resetSearch(defaultObjectClass);
+
         boolean templateCategory = WebComponentUtil.isTemplateCategory(getObjectWrapperObject().asObjectable());
 
         var objectTypes = new DropDownChoicePanel<>(ID_OBJECT_TYPE,
-                Model.of(getDefaultObjectClass()),
+                Model.of(defaultObjectClass),
                 () -> {
                     List<QName> resourceObjectClassesDefinitions = getObjectDetailsModels().getResourceObjectClassesDefinitions();
                     return Objects.requireNonNullElseGet(resourceObjectClassesDefinitions, ArrayList::new);
@@ -102,19 +110,50 @@ public class ResourceUncategorizedPanel extends AbstractObjectMainPanel<Resource
         objectTypes.getBaseFormComponent().add(new AjaxFormComponentUpdatingBehavior("change") {
             @Override
             protected void onUpdate(AjaxRequestTarget target) {
-                target.add(getShadowTable());
+                ShadowTablePanel table = getShadowTable();
+                resetSearch(getSelectedObjectClass());
+                table.getSearchModel().getObject();
+                table.refreshTable(target);
+                table.resetTable(target);
             }
         });
         objectTypes.setOutputMarkupId(true);
         add(objectTypes);
     }
 
+    private void resetSearch(QName currentObjectClass) {
+        ResourceContentStorage storage = getPageBase().getSessionStorage().getResourceContentStorage(null);
+
+        QName storedObjectClass = storage.getContentSearch().getObjectClass();
+        String storedResourceOid = storage.getContentSearch().getResourceOid();
+        String wrapperResourceOid = getObjectWrapper().getOid();
+        if (storedObjectClass == null
+                || !QNameUtil.match(currentObjectClass, storedObjectClass)
+                || StringUtils.isEmpty(wrapperResourceOid)
+                || !wrapperResourceOid.equals(storedResourceOid)) {
+            storage.setSearch(null);
+            storage.getContentSearch().setResourceOid(wrapperResourceOid);
+            storage.getContentSearch().setObjectClass(currentObjectClass);
+        }
+    }
+
     protected QName getDefaultObjectClass() {
+        ResourceContentStorage storage = getPageBase().getSessionStorage().getResourceContentStorage(null);
+        if (getObjectWrapper().getOid() != null
+                && getObjectWrapper().getOid().equals(storage.getContentSearch().getResourceOid())
+                && storage.getContentSearch().getObjectClass() != null) {
+            return storage.getContentSearch().getObjectClass();
+        }
         return getObjectDetailsModels().getDefaultObjectClass();
     }
 
     private void createShadowTable() {
         ShadowTablePanel shadowTablePanel = new ShadowTablePanel(ID_TABLE, getPanelConfiguration()) {
+
+            @Override
+            protected boolean isDeleteOnlyRepoShadowAllow() {
+                return false;
+            }
 
             @Override
             protected UserProfileStorage.TableId getTableId() {
@@ -142,7 +181,14 @@ public class ResourceUncategorizedPanel extends AbstractObjectMainPanel<Resource
             protected SearchContext createAdditionalSearchContext() {
                 SearchContext searchContext = new SearchContext();
                 searchContext.setPanelType(CollectionPanelType.RESOURCE_SHADOW);
-                searchContext.setResourceObjectDefinition(getObjectDetailsModels().findResourceObjectClassDefinition(getSelectedObjectClass()));
+                var objClassDef = getObjectDetailsModels().findResourceObjectClassDefinition(getSelectedObjectClass());
+                searchContext.setResourceObjectDefinition(objClassDef);
+                // MID-9569: selectedObjectDefinition has knowledge about detailed shadow type, so we can provide it
+                // directly to search (since we are also adding coordinates to filter) so Axiom Query can access
+                // additional attributes
+                if (objClassDef != null) {
+                    searchContext.setDefinitionOverride(objClassDef.getPrismObjectDefinition());
+                }
                 return searchContext;
             }
 
@@ -174,6 +220,11 @@ public class ResourceUncategorizedPanel extends AbstractObjectMainPanel<Resource
                     return super.createInlineMenu();
                 }
                 return List.of();
+            }
+
+            @Override
+            protected boolean isFulltextEnabled() {
+                return false;
             }
         };
         shadowTablePanel.setOutputMarkupId(true);
@@ -211,8 +262,12 @@ public class ResourceUncategorizedPanel extends AbstractObjectMainPanel<Resource
         reclassify.add(AttributeAppender.append("class", "btn btn-primary btn-sm mr-2"));
         reclassify.setOutputMarkupId(true);
         reclassify.showTitleAsLabel(true);
-        reclassify.add(new VisibleBehaviour(() -> getSelectedObjectClass() != null));
+        reclassify.add(new VisibleBehaviour(() -> isReclassifyButtonVisible() && getSelectedObjectClass() != null));
         return reclassify;
+    }
+
+    protected boolean isReclassifyButtonVisible() {
+        return true;
     }
 
     private TaskAwareExecutor.Executable<String> createReclassifyTask() throws RestartResponseException {

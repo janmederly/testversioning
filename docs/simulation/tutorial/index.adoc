@@ -99,12 +99,7 @@ Let us do that in link:https://github.com/Evolveum/midpoint-samples/tree/master/
                 <objectClass>ri:AccountObjectClass</objectClass>
                 <filter>
                     <q:description>Everyone with non-empty last name is a person</q:description>
-                    <q:not>
-                        <q:equal>
-                            <q:path>attributes/ri:lastname</q:path>
-                            <!-- empty value -->
-                        </q:equal>
-                    </q:not>
+                    <q:text>attributes/lastname exists</q:text>
                 </filter>
             </delineation>
         </objectType>
@@ -115,10 +110,7 @@ Let us do that in link:https://github.com/Evolveum/midpoint-samples/tree/master/
                 <objectClass>ri:AccountObjectClass</objectClass>
                 <filter>
                     <q:description>Everyone with empty last name is not a person</q:description>
-                    <q:equal>
-                        <q:path>attributes/ri:lastname</q:path>
-                        <!-- empty value -->
-                    </q:equal>
+                    <q:text>attributes/lastname not exists</q:text>
                 </filter>
             </delineation>
         </objectType>
@@ -319,12 +311,7 @@ Please import link:https://github.com/Evolveum/midpoint-samples/tree/master/samp
                 <objectClass>ri:AccountObjectClass</objectClass>
                 <filter>
                     <q:description>Everyone with non-empty last name is a person</q:description>
-                    <q:not>
-                        <q:equal>
-                            <q:path>attributes/ri:lastname</q:path>
-                            <!-- empty value -->
-                        </q:equal>
-                    </q:not>
+                    <q:text>attributes/lastname exists</q:text>
                 </filter>
             </delineation>
             <attribute>
@@ -862,7 +849,7 @@ After we are satisfied with the results, we can "commit" them by executing the s
 
 Here we could mark some shadows as protected, "do not touch", "decommission later", or "correlate later":
 
-NOTE: For more information about how to mark the shadows, please see xref:/midpoint/reference/mark/#gui-object-marks-and-shadows[Object Marks].
+NOTE: For more information about how to mark the shadows, please see xref:/midpoint/reference/concepts/mark/#gui-object-marks-and-shadows[Object Marks].
 
 .Marked shadows
 image::marked-shadows.png[Marked shadows, width=1600]

@@ -1,8 +1,14 @@
+---
+midpoint-feature: pdrbac
+doc-type: intro
+compliance:
+    iso27001:
+        '5.15':
+            description: 'Policy-driven RBAC as an access control mechanism that is based on roles and it includes dynamic policy elements'
+---
 = Policy-Driven Role-Based Access Control
 :page-nav-title: Policy-Driven RBAC
 :page-toc: top
-:page-midpoint-feature: true
-:page-alias: { "parent" : "/midpoint/features/current/" }
 :page-upkeep-status: green
 
 == Introduction
@@ -15,6 +21,8 @@ Roles are assigned to users using _static_ assignments, a user is either assigne
 Privileges and user assignments do not change by themselves, system administrator or a similar privileged entity has to change them if needed.
 This is no small effort, as there are usually a lot of roles to maintain.
 It is no exception that there are more roles than there are users, which somehow spoils the original idea of reducing system administration effort.
+
+image::rbac-overview.png[Static RBAC]
 
 Static RBAC models have numerous drawbacks, including xref:/iam/role-explosion/[role explosion], huge role maintenance and access review effort, tendency for over-provisioning and so on.
 It is quite clear that _static_ RBAC methods are not suitable for current access control needs.
@@ -52,6 +60,7 @@ Similarly `London Supervisor`, `Paris Supervisor` and `New York Supervisor` are 
 
 Both _relation_ and _role parameters_ are efficient method to reduce xref:/iam/role-explosion/[role explosion].
 
+image::pdrbac-midpoint-overview.png[Policy-driven RBAC in midPoint]
 
 == Dynamic Assignments
 

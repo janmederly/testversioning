@@ -84,7 +84,7 @@ See the xref:/midpoint/reference/resources/entitlements/[Entitlements] page for 
 
 === Attributes
 
-Construction assignments can be used to define a specific attribute values or expressions for created resource objects.
+Construction assignments can be used to define an outbound mapping for a specified attribute of the constructed resource object.
 
 The following example specifies that an _account_ should be created on the resource.
 It also specified that the attribute `title` of such account should be set to a fixed value `Bloody Pirate`.
@@ -108,24 +108,30 @@ It also specified that the attribute `title` of such account should be set to a 
     </assignment>
 ----
 
-[TIP]
-.Assignment vs direct account modifications
+This _attribute_ definition in assignment use the same principle that is used for resource xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
+Therefore, the full scale of xref:/midpoint/reference/expressions/mappings/[mapping capabilities] can be used here.
+Other xref:/midpoint/reference/resources/resource-configuration/schema-handling/#attribute-definitions[configuration options of resource attribute], like _tolerance_ or _limitations_, can't be used in assignments.
+
+The new outbound mapping defined in assignment is representing a policy, which will be merged with other policies before the target resource object is provisioned or modified.
+Most importantly the resulting values are merged with the results of resource's xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
+The values are merged by default and no special configuration is required.
+
+[NOTE]
+.Do not overuse
 ====
-Setting an attribute using an assignment is very different than just setting the attribute value directly on the account.
-As this is an assignment, this specification of the attribute specifies a _policy_.
-I.e. it specifies that the account _should_ always have this value.
-Therefore if midPoint detects that the value of attribute `title` has changed (e.g. during a reconciliation) then midPoint will try to fix the situation and will set the attribute to the correct value.
+Do not overuse the ability of assignments to enforce attribute values.
+Assignments usually specify exceptions to the policies.
+The lower is the number of exceptions the more consistent the policies are.
+Consistent policies are easier to maintain.
+Care should be taken even if this ability is used in a form of xref:/midpoint/reference/roles-policies/rbac/[role inducements].
+Some legacy IDM systems had no other way how to define a policy for attribute values than roles.
+Therefore, some IDM engineers have tendency to abuse RBAC mechanisms to define global policies.
+This is *not* the case with midPoint.
+MidPoint has a clean and elegant mechanism for specifying resource-global policies: xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
 
-On the other hand if an attribute value is changed directly on the account (e.g. using a midPoint GUI) then the initial result will be the same: the account attribute is changed.
-But if the value is not specified in assignment it will *not* be part of the policy.
-And if someone changes the account attribute value later the midPoint will *not* set it back.
-This is the primary difference:
-
-* Assignment is a policy.
-MidPoint will try to correct the situation when it has a chance (and reason) to do so.
-
-* Direct account modifications just change the reality.
-MidPoint will *not* try to re-apply them later.
+*Rule of the thumb:* xref:/midpoint/reference/expressions/mappings/outbound-mapping/[Outbound mappings] should be used to set attribute values if possible.
+If not then xref:/midpoint/reference/roles-policies/rbac/[role inducements] should be used.
+Specifying attribute values in assignments should be used only if no other mechanisms is sufficient to implement the policy.
 
 ====
 
@@ -160,45 +166,14 @@ It produces values similar to "Jack Sparrow is the best pirate Caribbean has eve
     </assignment>
 ----
 
-An observant reader had surely noticed similarity with xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
-The same xref:/midpoint/reference/expressions/mappings/[mapping] principle is used in both outbound mappings and assignments.
-Therefore the full scale of mapping capabilities can be used in assignments.
-
-The values specified by assignments are merged with other policies before the target resource object is provisioned or modified.
-Most importantly the values are merged with the results of xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
-The values are merged by default and no special configuration is required.
-
-[NOTE]
-.Do not overuse
-====
-Do not overuse the ability of assignments to enforce attribute values.
-Assignments usually specify exceptions to the policies.
-The lower is the number of exceptions the more consistent the policies are.
-Consistent policies are easier to maintain.
-Care should be taken even if this ability is used in a form of xref:/midpoint/reference/roles-policies/rbac/[role inducements].
-Some legacy IDM systems had no other way how to define a policy for attribute values than roles.
-Therefore some IDM engineers have tendency to abuse RBAC mechanisms to define global policies.
-This is *not* the case with midPoint.
-MidPoint has a clean and elegant mechanism for specifying resource-global policies: xref:/midpoint/reference/expressions/mappings/outbound-mapping/[outbound mappings].
-
-*Rule of the thumb:* xref:/midpoint/reference/expressions/mappings/outbound-mapping/[Outbound mappings] should be used to set attribute values if possible.
-If not then xref:/midpoint/reference/roles-policies/rbac/[role inducements] should be used.
-Specifying attribute values in assignments should be used only if no other mechanisms is sufficient to implement the policy.
-
-====
-
 === Strong and Weak Constructions
-
-++++
-{% include since.html since="3.5" %}
-++++
 
 The default construction type is _strong_.
 It means that if such a construction is assigned to a user, the account will immediately get created.
 This is the expected behavior in vast majority of cases.
 However, there are cases when we do not want to immediately create an account.
 Maybe the construction just adds several attributes to existing account - if the user already has that account.
-Therefore since midPoint 3.5 there is a possibility to make the construction _weak_.
+Therefore, there is a possibility to make the construction _weak_.
 Weak constructions do not add new account immediately.
 If the weak construction is the only construction for a specific account it is simply ignored.
 Weak construction is applied only if there is another (strong) construction that adds the account.
@@ -279,10 +254,7 @@ Following example is looking up the group by name:
                     <expression>
                         <associationTargetSearch>
                             <filter>
-                                <q:equal>
-                                    <q:path>attributes/icfs:name</q:path>
-                                    <q:value>landlubers</q:value>
-                                </q:equal>
+                                <q:text>attributes/name = "landlubers"</q:text>
                             </filter>
                         </associationTargetSearch>
                     </expression>
@@ -313,14 +285,7 @@ In this case we can use algorithm to determine the name of the entitlement (grou
                     <expression>
                         <associationTargetSearch>
                             <filter>
-                                <q:equal>
-                                    <q:path>attributes/icfs:name</q:path>
-                                    <expression>
-                                        <script>
-                                            <code>'group-' + name</code>
-                                        </script>
-                                    </expression>
-                                </q:equal>
+                                <q:text>attributes/name = `"group-" + name`</q:text>
                             </filter>
                         </associationTargetSearch>
                     </expression>
@@ -403,7 +368,6 @@ Use assignmentPath instead.
 | Sequence of assignments from the focal object to the point of evaluation.
 (More exactly, each item in this sequence is an link:https://github.com/Evolveum/midpoint/blob/master/model/model-api/src/main/java/com/evolveum/midpoint/model/api/context/AssignmentPathSegment.java[AssignmentPathSegment].
 It is a structure that contains an assignment augmented with additional information, like the actual source and target objects.)
-Available since midPoint 3.6.
 See xref:/midpoint/reference/roles-policies/assignment/using-assignment-path-in-expressions/[Using Assignment Path in Expressions] and xref:/midpoint/reference/roles-policies/assignment/assignment-path-variables-example/[Assignment Path Variables Example]
 
 
@@ -412,10 +376,6 @@ See xref:/midpoint/reference/roles-policies/assignment/using-assignment-path-in-
 Use of these variables is xref:/midpoint/reference/roles-policies/assignment/assignment-path-variables-example/[illustrated on the example here].
 
 === The loginMode Variable
-
-++++
-{% include since.html since="3.9" %}
-++++
 
 At login time, many parts of assignments, e.g. constructions and focus mappings are *not* evaluated - because of performance as well as availability reasons.
 But sometimes even the evaluation of _conditions_ on paths to these elements might be time-consuming and even unavailable because of missing security context.
@@ -426,10 +386,6 @@ Conditions to targets that are irrelevant at this moment can then be quickly eva
 This variable is present also in target filtering expressions.
 
 === Construction Assignments in Generic Synchronization
-
-++++
-{% include since.html since="3.0" %}
-++++
 
 Things are getting a bit more complex when xref:/midpoint/reference/synchronization/generic-synchronization/[generic synchronization] feature is used.
 In such a case we may want to create groups based on midPoint organizational units.

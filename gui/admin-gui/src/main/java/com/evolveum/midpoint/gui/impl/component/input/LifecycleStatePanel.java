@@ -13,6 +13,7 @@ import com.evolveum.midpoint.gui.api.util.DisplayableChoiceRenderer;
 import com.evolveum.midpoint.gui.api.util.LocalizationUtil;
 import com.evolveum.midpoint.gui.api.util.WebComponentUtil;
 import com.evolveum.midpoint.gui.impl.component.search.SearchValue;
+import com.evolveum.midpoint.prism.impl.DisplayableValueImpl;
 import com.evolveum.midpoint.prism.impl.binding.AbstractMutableContainerable;
 import com.evolveum.midpoint.util.DisplayableValue;
 
@@ -99,11 +100,15 @@ public class LifecycleStatePanel extends InputPanel {
                     value = SchemaConstants.LIFECYCLE_ACTIVE;
                 }
                 String finalValue = value;
-                return (DisplayableValue<String>) choicesModel.getObject()
+                Optional<DisplayableValue<String>> displayValue = choicesModel.getObject()
                         .stream()
                         .filter(choice -> ((DisplayableValue<String>) choice).getValue().equals(finalValue))
-                        .findFirst()
-                        .get();
+                        .findFirst();
+
+                if (displayValue.isPresent()) {
+                    return displayValue.get();
+                }
+                return new DisplayableValueImpl<>(finalValue, finalValue);
             }
 
             @Override
@@ -149,26 +154,21 @@ public class LifecycleStatePanel extends InputPanel {
                 DisplayableValue<String> displayValue = (DisplayableValue<String>) choice;
                 DisplayForLifecycleState display = DisplayForLifecycleState.valueOfOrDefault(displayValue.getValue());
                 String label = new DisplayableValueChoiceRenderer<>(null).getDisplayValue(displayValue);
+                buffer.append("\n<option ");
+                setOptionAttributes(buffer, choice, index, selected);
+                buffer.append(">");
                 if (display.getLabel() == null) {
-                    buffer.append("\n<option ");
-                    setOptionAttributes(buffer, choice, index, selected);
-                    buffer.append(">");
                     buffer.append(label);
-                    buffer.append("</option>");
                 } else {
-                    buffer.append("\n<option ");
-                    setOptionAttributes(buffer, choice, index, selected);
-                    buffer.append("style=\"display:none;\">");
-                    buffer.append(label);
-                    buffer.append("</option>");
-
                     String advancedLabel = LocalizationUtil.translate(display.getLabel());
-                    buffer.append("\n<option ");
-                    setOptionAttributes(buffer, choice, index, null);
-                    buffer.append(">");
-                    buffer.append(advancedLabel);
-                    buffer.append("</option>");
+                    if (label.equals(advancedLabel)) {
+                        buffer.append(label);
+                    } else {
+                        buffer.append(advancedLabel);
+                    }
                 }
+                buffer.append("</option>");
+
             }
         };
         input.setNullValid(false);

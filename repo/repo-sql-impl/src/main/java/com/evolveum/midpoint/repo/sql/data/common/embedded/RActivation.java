@@ -12,6 +12,7 @@ import javax.xml.datatype.XMLGregorianCalendar;
 
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+import org.hibernate.annotations.JdbcType;
 import org.hibernate.annotations.Type;
 
 import com.evolveum.midpoint.prism.PrismContext;
@@ -23,10 +24,11 @@ import com.evolveum.midpoint.repo.sql.util.DtoTranslationException;
 import com.evolveum.midpoint.repo.sql.util.RUtil;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ActivationType;
 
-@Embeddable
+import org.hibernate.type.descriptor.jdbc.IntegerJdbcType;
+
 @JaxbType(type = ActivationType.class)
 @MappedSuperclass
-public class RActivation {
+public abstract class RActivation {
 
     private RActivationStatus administrativeStatus;
     private RActivationStatus effectiveStatus;
@@ -63,19 +65,19 @@ public class RActivation {
         return validityChangeTimestamp;
     }
 
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     @Enumerated(EnumType.ORDINAL)
     public RTimeIntervalStatus getValidityStatus() {
         return validityStatus;
     }
 
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     @Enumerated(EnumType.ORDINAL)
     public RActivationStatus getAdministrativeStatus() {
         return administrativeStatus;
     }
 
-    @Column
+    @JdbcType(IntegerJdbcType.class)
     @Enumerated(EnumType.ORDINAL)
     public RActivationStatus getEffectiveStatus() {
         return effectiveStatus;

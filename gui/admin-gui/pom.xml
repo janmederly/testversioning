@@ -13,7 +13,7 @@
     <parent>
         <artifactId>gui</artifactId>
         <groupId>com.evolveum.midpoint.gui</groupId>
-        <version>4.8.1-SNAPSHOT</version>
+        <version>4.8.6-SNAPSHOT</version>
     </parent>
 
     <artifactId>admin-gui</artifactId>
@@ -191,6 +191,11 @@
         <dependency>
             <groupId>com.evolveum.midpoint.repo</groupId>
             <artifactId>system-init</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.evolveum.midpoint.repo</groupId>
+            <artifactId>repo-sqlbase</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -413,10 +418,6 @@
             <artifactId>wicket-extensions</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.wicket</groupId>
-            <artifactId>wicket-datetime</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.wicketstuff</groupId>
             <artifactId>wicketstuff-select2</artifactId>
         </dependency>
@@ -513,7 +514,7 @@
         <!-- Messaging -->
         <dependency>
             <groupId>org.apache.activemq</groupId>
-            <artifactId>artemis-jms-client</artifactId>
+            <artifactId>artemis-jakarta-client</artifactId>
             <scope>runtime</scope>
         </dependency>
         <dependency>
@@ -584,6 +585,12 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.wicket</groupId>
+            <artifactId>wicket-tester</artifactId>
+            <version>${wicket.version}</version>
             <scope>test</scope>
         </dependency>
 

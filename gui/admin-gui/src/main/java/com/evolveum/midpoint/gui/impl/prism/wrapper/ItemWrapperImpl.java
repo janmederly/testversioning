@@ -99,7 +99,13 @@ public abstract class ItemWrapperImpl<I extends Item, VW extends PrismValueWrapp
         if (isOperational()) {
             return null;
         }
+        return computeDeltaInternal();
+    }
 
+    //TODO this is not good. if getDetla is overriden, this is never called.
+    // however, this is needed for special cases, such as authentication behavior
+    // think about better solution
+    protected  <D extends ItemDelta<? extends PrismValue, ? extends ItemDefinition>> Collection<D> computeDeltaInternal() throws SchemaException {
         D delta;
         if (parent != null && ValueStatus.ADDED == parent.getStatus()) {
             delta = (D) createEmptyDelta(getItemName());
@@ -709,15 +715,14 @@ public abstract class ItemWrapperImpl<I extends Item, VW extends PrismValueWrapp
                 getItem().remove(valueWrapper.getNewValue());
                 break;
             case NOT_CHANGED:
-//                if (isSingleValue()) {
-//                    valueWrapper.setRealValue(null);
-//                    valueWrapper.setStatus(ValueStatus.MODIFIED);
-//                } else {
-                    getItem().remove(valueWrapper.getNewValue());
-                    valueWrapper.setStatus(ValueStatus.DELETED);
-//                }
+                removeNotChangedStatusValue(valueWrapper, getItem());
                 break;
         }
+    }
+
+    protected void removeNotChangedStatusValue(VW valueWrapper, Item rawItem) {
+        rawItem.remove(valueWrapper.getNewValue());
+        valueWrapper.setStatus(ValueStatus.DELETED);
     }
 
     protected abstract <PV extends PrismValue> PV createNewEmptyValue(ModelServiceLocator locator);

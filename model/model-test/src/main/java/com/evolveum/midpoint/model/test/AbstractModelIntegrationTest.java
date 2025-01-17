@@ -62,6 +62,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.web.FilterInvocation;
+import org.springframework.security.web.SecurityFilterChain;
 import org.testng.AssertJUnit;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeMethod;
@@ -171,6 +172,14 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     protected static final String CONNECTOR_DUMMY_TYPE = "com.evolveum.icf.dummy.connector.DummyConnector";
     protected static final String CONNECTOR_DUMMY_VERSION = "2.0";
     protected static final String CONNECTOR_DUMMY_NAMESPACE = "http://midpoint.evolveum.com/xml/ns/public/connector/icf-1/bundle/com.evolveum.icf.dummy/com.evolveum.icf.dummy.connector.DummyConnector";
+
+    protected static final ItemName DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME =
+            new ItemName(CONNECTOR_DUMMY_NAMESPACE, "alwaysRequireUpdateOfAttribute");
+    protected static final ItemPath DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_PATH =
+            ItemPath.create(
+                    ResourceType.F_CONNECTOR_CONFIGURATION,
+                    SchemaTestConstants.ICFC_CONFIGURATION_PROPERTIES,
+                    DUMMY_ALWAYS_REQUIRE_UPDATE_OF_ATTRIBUTE_NAME);
 
     protected static final ItemPath ACTIVATION_ADMINISTRATIVE_STATUS_PATH = SchemaConstants.PATH_ACTIVATION_ADMINISTRATIVE_STATUS;
     protected static final ItemPath ACTIVATION_VALID_FROM_PATH = SchemaConstants.PATH_ACTIVATION_VALID_FROM;
@@ -4751,6 +4760,11 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
                 //TODO
                 return null;
             }
+
+            @Override
+            public SecurityFilterChain getSecurityFilterChain() {
+                return null;
+            }
         };
         mpAuthentication.setAuthModules(Collections.singletonList(authModule));
         mpAuthentication.setPrincipal(authentication.getPrincipal());
@@ -7136,7 +7150,14 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
     }
 
     protected void dumpStatistics(Task task) {
-        OperationStatsType stats = task.getStoredOperationStatsOrClone();
+        dumpStatistics(task.getStoredOperationStatsOrClone());
+    }
+
+    protected void dumpStatistics(PrismObject<TaskType> task) {
+        dumpStatistics(task.asObjectable().getOperationStats());
+    }
+
+    private void dumpStatistics(OperationStatsType stats) {
         displayValue("Provisioning statistics", ProvisioningStatistics.format(
                 stats.getEnvironmentalPerformanceInformation().getProvisioningStatistics()));
     }
@@ -7281,7 +7302,8 @@ public abstract class AbstractModelIntegrationTest extends AbstractIntegrationTe
 
     @Override
     public OperationResult testResource(@NotNull String oid, @NotNull Task task, @NotNull OperationResult result)
-            throws ObjectNotFoundException, SchemaException, ConfigurationException {
+            throws ObjectNotFoundException, SchemaException, ConfigurationException, SecurityViolationException,
+            ExpressionEvaluationException, CommunicationException {
         return modelService.testResource(oid, task, result);
     }
 

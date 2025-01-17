@@ -12,7 +12,8 @@ import static com.evolveum.midpoint.model.impl.lens.LensUtil.getExportType;
 
 import javax.xml.datatype.XMLGregorianCalendar;
 
-import com.evolveum.midpoint.model.impl.lens.ConflictDetectedException;
+import com.evolveum.midpoint.model.impl.lens.*;
+import com.evolveum.midpoint.model.impl.lens.LensContext.AuthorizationState;
 import com.evolveum.midpoint.model.impl.lens.projector.focus.ObjectTemplateProcessor;
 import com.evolveum.midpoint.model.impl.lens.projector.loader.ContextLoader;
 import com.evolveum.midpoint.model.impl.lens.projector.policy.PolicyRuleProcessor;
@@ -27,9 +28,6 @@ import org.springframework.stereotype.Component;
 import com.evolveum.midpoint.common.Clock;
 import com.evolveum.midpoint.model.api.ProgressInformation;
 import com.evolveum.midpoint.model.api.context.SynchronizationPolicyDecision;
-import com.evolveum.midpoint.model.impl.lens.ClockworkMedic;
-import com.evolveum.midpoint.model.impl.lens.LensContext;
-import com.evolveum.midpoint.model.impl.lens.LensProjectionContext;
 import com.evolveum.midpoint.model.impl.lens.projector.credentials.ProjectionCredentialsProcessor;
 import com.evolveum.midpoint.model.impl.lens.projector.focus.AssignmentHolderProcessor;
 import com.evolveum.midpoint.model.impl.util.ModelImplUtils;
@@ -178,6 +176,13 @@ public class Projector {
                 LOGGER.trace("Not loading the context, as 'fromStart' is false");
             }
 
+            if (context.getAuthorizationState() == AuthorizationState.NONE) {
+                // We need the context to be fully loaded before the authorization is done, hence we do the authorization
+                // after the loading. But we still evaluate it under "full information may not be available" mode,
+                // as parentOrgRef, tenantRef, and roleMembershipRef values may be missing here.
+                ClockworkRequestAuthorizer.authorizeContextRequest(context, false, task, result);
+            }
+
             LOGGER.trace("WAVE {} (executionWave={})", context.getProjectionWave(), context.getExecutionWave());
 
             //just make sure everything is loaded and set as needed
@@ -232,10 +237,10 @@ public class Projector {
         } catch (SchemaException | PolicyViolationException | ExpressionEvaluationException | ObjectAlreadyExistsException |
                 ObjectNotFoundException | CommunicationException | ConfigurationException | SecurityViolationException |
                 ConflictDetectedException e) {
-            recordFatalError(e, now, result);
+            recordException(e, now, result);
             throw e;
         } catch (RuntimeException e) {
-            recordFatalError(e, now, result);
+            recordException(e, now, result);
             // This should not normally happen unless there is something really bad or there is a bug.
             // Make sure that it is logged.
             LOGGER.error("Runtime error in projector: {}", e.getMessage(), e);
@@ -410,9 +415,9 @@ public class Projector {
         context.clearConflictingProjectionContexts();
     }
 
-    private void recordFatalError(Exception e, XMLGregorianCalendar projectorStartTimestampCal, OperationResult result) {
-        result.recordFatalError(e);
-        result.cleanupResult(e);
+    private void recordException(Exception e, XMLGregorianCalendar projectorStartTimestampCal, OperationResult result) {
+        result.recordException(e);
+        result.cleanup();
         if (LOGGER.isDebugEnabled()) {
             long projectorStartTimestamp = XmlTypeConverter.toMillis(projectorStartTimestampCal);
             long projectorEndTimestamp = clock.currentTimeMillis();

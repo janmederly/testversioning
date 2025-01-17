@@ -9,10 +9,14 @@ package com.evolveum.midpoint.gui.impl.page.admin.role.mining.tables;
 
 import static com.evolveum.midpoint.common.mining.utils.RoleAnalysisUtils.getRolesOidAssignment;
 import static com.evolveum.midpoint.gui.api.util.GuiDisplayTypeUtil.createDisplayType;
-import static com.evolveum.midpoint.gui.impl.page.admin.role.mining.utils.RoleAnalysisObjectUtils.*;
+import static com.evolveum.midpoint.model.common.expression.functions.BasicExpressionFunctions.LOGGER;
 
 import java.io.Serial;
 import java.util.*;
+
+import com.evolveum.midpoint.common.mining.utils.values.RoleAnalysisChannelMode;
+
+import com.evolveum.midpoint.model.api.mining.RoleAnalysisService;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
@@ -58,6 +62,7 @@ import com.evolveum.midpoint.schema.ResultHandler;
 import com.evolveum.midpoint.schema.constants.ObjectTypes;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.ObjectTypeUtil;
+import com.evolveum.midpoint.task.api.Task;
 import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.web.component.AjaxCompositedIconSubmitButton;
 import com.evolveum.midpoint.web.component.AjaxIconButton;
@@ -66,6 +71,7 @@ import com.evolveum.midpoint.web.component.data.column.IconColumn;
 import com.evolveum.midpoint.web.component.util.RoleMiningProvider;
 import com.evolveum.midpoint.web.model.PrismPropertyWrapperHeaderModel;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
+import com.evolveum.prism.xml.ns._public.types_3.PolyStringType;
 
 public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
@@ -74,7 +80,6 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
     private static final String DOT_CLASS = RoleAnalysisDetectedPatternTable.class.getName() + ".";
     private static final String OP_PREPARE_OBJECTS = DOT_CLASS + "prepareObjects";
     OperationResult result = new OperationResult(OP_PREPARE_OBJECTS);
-
 
     public RoleAnalysisDetectedPatternTable(String id, LoadableDetachableModel<List<DetectedPattern>> detectedPatternList,
             boolean isOperationEnable, RoleAnalysisClusterType cluster) {
@@ -190,11 +195,14 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
                         @Override
                         public void onClick(AjaxRequestTarget target) {
+                            Task task = getPageBase().createSimpleTask(OP_PREPARE_OBJECTS);
+
                             List<PrismObject<FocusType>> objects = new ArrayList<>();
                             Set<String> roles = rowModel.getObject().getRoles();
 
-                            for (String s : roles) {
-                                objects.add(getFocusTypeObject(getPageBase(), s, result));
+                            for (String roleOid : roles) {
+                                objects.add(getPageBase().getRoleAnalysisService()
+                                        .getFocusTypeObject(roleOid, task, result));
                             }
                             MembersDetailsPanel detailsPanel = new MembersDetailsPanel(((PageBase) getPage()).getMainPopupBodyId(),
                                     Model.of("Analyzed members details panel"), objects, RoleAnalysisProcessModeType.ROLE) {
@@ -223,7 +231,8 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
             @Override
             public Component getHeader(String componentId) {
-                return new Label(componentId, createStringResource("RoleMining.cluster.table.column.header.role.occupation"));
+                return new Label(
+                        componentId, createStringResource("RoleMining.cluster.table.column.header.role.occupation"));
             }
 
         });
@@ -252,12 +261,14 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
                         @Override
                         public void onClick(AjaxRequestTarget target) {
+                            Task task = getPageBase().createSimpleTask(OP_PREPARE_OBJECTS);
 
                             List<PrismObject<FocusType>> objects = new ArrayList<>();
                             Set<String> users = rowModel.getObject().getUsers();
 
-                            for (String s : users) {
-                                objects.add(getFocusTypeObject(getPageBase(), s, result));
+                            for (String userOid : users) {
+                                objects.add(getPageBase().getRoleAnalysisService()
+                                        .getFocusTypeObject(userOid, task, result));
                             }
                             MembersDetailsPanel detailsPanel = new MembersDetailsPanel(((PageBase) getPage()).getMainPopupBodyId(),
                                     Model.of("Analyzed members details panel"), objects, RoleAnalysisProcessModeType.USER) {
@@ -287,7 +298,8 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
             @Override
             public Component getHeader(String componentId) {
-                return new Label(componentId, createStringResource("RoleMining.cluster.table.column.header.user.occupation"));
+                return new Label(
+                        componentId, createStringResource("RoleMining.cluster.table.column.header.user.occupation"));
             }
 
         });
@@ -312,8 +324,8 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
                         item.add(new EmptyPanel(componentId));
                     } else {
 
-                        CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(GuiStyleConstants.CLASS_ICON_SEARCH,
-                                LayeredIconCssStyle.IN_ROW_STYLE);
+                        CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(
+                                GuiStyleConstants.CLASS_ICON_SEARCH, LayeredIconCssStyle.IN_ROW_STYLE);
                         AjaxCompositedIconSubmitButton exploreButton = new AjaxCompositedIconSubmitButton(componentId,
                                 iconBuilder.build(),
                                 createStringResource("RoleMining.button.title.load")) {
@@ -365,8 +377,8 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
                     if (rowModel.getObject() == null) {
                         item.add(new EmptyPanel(componentId));
                     } else {
-                        CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(GuiStyleConstants.CLASS_PLUS_CIRCLE,
-                                LayeredIconCssStyle.IN_ROW_STYLE);
+                        CompositedIconBuilder iconBuilder = new CompositedIconBuilder().setBasicIcon(
+                                GuiStyleConstants.CLASS_PLUS_CIRCLE, LayeredIconCssStyle.IN_ROW_STYLE);
                         AjaxCompositedIconSubmitButton migrationButton = new AjaxCompositedIconSubmitButton(componentId,
                                 iconBuilder.build(),
                                 createStringResource("RoleMining.button.title.process")) {
@@ -374,6 +386,25 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
                             @Override
                             protected void onSubmit(AjaxRequestTarget target) {
+                                Task task = getPageBase().createSimpleTask(OP_PREPARE_OBJECTS);
+                                OperationResult result = task.getResult();
+                                PrismObject<RoleAnalysisClusterType> clusterPrismObject = cluster.asPrismObject();
+                                RoleAnalysisService roleAnalysisService = getPageBase().getRoleAnalysisService();
+
+                                roleAnalysisService.recomputeAndResolveClusterOpStatus(
+                                        clusterPrismObject, RoleAnalysisChannelMode.DEFAULT
+                                        , result, task);
+
+                                boolean isUnderActivity = roleAnalysisService
+                                        .isUnderActivity(clusterPrismObject, RoleAnalysisChannelMode.DEFAULT,
+                                                task, result);
+
+                                if (isUnderActivity) {
+                                    warn("Couldn't start detection. Some process is already in progress.");
+                                    LOGGER.error("Couldn't start detection. Some process is already in progress.");
+                                    target.add(getFeedbackPanel());
+                                    return;
+                                }
 
                                 Set<String> roles = rowModel.getObject().getRoles();
                                 Set<String> users = rowModel.getObject().getUsers();
@@ -381,18 +412,21 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
                                 List<AssignmentType> roleAssignments = new ArrayList<>();
 
                                 for (String roleOid : roles) {
-                                    PrismObject<RoleType> roleObject = getRoleTypeObject(getPageBase(), roleOid, result);
+                                    PrismObject<RoleType> roleObject = getPageBase().getRoleAnalysisService()
+                                            .getRoleTypeObject(roleOid, task, result);
                                     if (roleObject != null) {
                                         roleAssignments.add(ObjectTypeUtil.createAssignmentTo(roleOid, ObjectTypes.ROLE));
                                     }
                                 }
 
-                                PrismObject<RoleType> businessRole = generateBusinessRole((PageBase) getPage(), roleAssignments, "");
+                                PrismObject<RoleType> businessRole = getPageBase().getRoleAnalysisService()
+                                        .generateBusinessRole(roleAssignments, PolyStringType.fromOrig(""));
 
                                 List<BusinessRoleDto> roleApplicationDtos = new ArrayList<>();
 
                                 for (String userOid : users) {
-                                    PrismObject<UserType> userObject = getUserTypeObject(getPageBase(), userOid, result);
+                                    PrismObject<UserType> userObject = getPageBase().getRoleAnalysisService()
+                                            .getUserTypeObject(userOid, task, result);
                                     if (userObject != null) {
                                         roleApplicationDtos.add(new BusinessRoleDto(userObject,
                                                 businessRole, getPageBase()));
@@ -401,9 +435,11 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
                                 PrismObject<RoleAnalysisClusterType> prismObjectCluster = cluster.asPrismObject();
 
-                                BusinessRoleApplicationDto operationData = new BusinessRoleApplicationDto(prismObjectCluster, businessRole, roleApplicationDtos);
+                                BusinessRoleApplicationDto operationData = new BusinessRoleApplicationDto(
+                                        prismObjectCluster, businessRole, roleApplicationDtos);
 
                                 PageRole pageRole = new PageRole(operationData.getBusinessRole(), operationData);
+                                pageRole.getPageParameters().add("panelId", "detectedPattern");
                                 setResponsePage(pageRole);
                             }
 
@@ -452,7 +488,9 @@ public class RoleAnalysisDetectedPatternTable extends BasePanel<String> {
 
     }
 
-    private Set<String> resolveTotalOccupancy(RoleAnalysisProcessModeType roleAnalysisProcessModeType, DetectedPattern detectedPattern,
+    private Set<String> resolveTotalOccupancy(
+            RoleAnalysisProcessModeType roleAnalysisProcessModeType,
+            DetectedPattern detectedPattern,
             OperationResult result, PageBase pageBase) {
 
         Set<String> membersOidList = new HashSet<>();

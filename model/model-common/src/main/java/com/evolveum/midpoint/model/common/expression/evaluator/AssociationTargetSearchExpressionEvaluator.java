@@ -10,6 +10,11 @@ import java.util.Collection;
 import java.util.List;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.util.MiscUtil;
+import com.evolveum.midpoint.util.exception.ConfigurationException;
+
+import com.evolveum.prism.xml.ns._public.query_3.SearchFilterType;
+
 import org.jetbrains.annotations.NotNull;
 
 import com.evolveum.midpoint.common.LocalizationService;
@@ -28,11 +33,8 @@ import com.evolveum.midpoint.repo.common.expression.ExpressionEvaluationContext;
 import com.evolveum.midpoint.schema.GetOperationOptions;
 import com.evolveum.midpoint.schema.SelectorOptions;
 import com.evolveum.midpoint.schema.cache.CacheType;
-import com.evolveum.midpoint.schema.constants.ExpressionConstants;
-import com.evolveum.midpoint.schema.expression.TypedValue;
 import com.evolveum.midpoint.schema.expression.VariablesMap;
 import com.evolveum.midpoint.schema.internals.InternalsConfig;
-import com.evolveum.midpoint.schema.processor.ResourceObjectTypeDefinition;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.util.ShadowUtil;
 import com.evolveum.midpoint.task.api.Task;
@@ -41,6 +43,8 @@ import com.evolveum.midpoint.util.exception.SchemaException;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.SearchObjectExpressionEvaluatorType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowAssociationType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ShadowType;
+
+import static com.evolveum.midpoint.model.common.expression.evaluator.AssociationRelatedEvaluatorUtil.getAssociationDefinition;
 
 /**
  * Creates an association (or associations) based on specified condition for the associated object.
@@ -112,23 +116,30 @@ public class AssociationTargetSearchExpressionEvaluator
             }
 
             @Override
-            protected ObjectQuery extendQuery(ObjectQuery query, ExpressionEvaluationContext params)
+            protected ObjectQuery extendQuery(ObjectQuery query, ExpressionEvaluationContext context)
                     throws ExpressionEvaluationException {
-                @SuppressWarnings("unchecked")
-                var rAssocTargetDefTypedValue = (TypedValue<ResourceObjectTypeDefinition>)
-                        params.getVariables().get(ExpressionConstants.VAR_ASSOCIATION_TARGET_OBJECT_CLASS_DEFINITION);
-                if (rAssocTargetDefTypedValue == null || rAssocTargetDefTypedValue.getValue() == null) {
-                    throw new ExpressionEvaluationException(
-                            String.format("No association target object definition variable in %s; the expression may be used in"
-                                    + " a wrong place. It is only supposed to create an association.",
-                                    params.getContextDescription()));
+
+                var associationDefinition = getAssociationDefinition(context);
+
+                ObjectFilter coordinatesFilter;
+                var coordinatesFilterBuilder = prismContext.queryFor(ShadowType.class)
+                        .item(ShadowType.F_RESOURCE_REF).ref(associationDefinition.getResourceOid());
+
+                if (!associationDefinition.hasMultipleIntents()) {
+                    var associationTargetDef = associationDefinition.getAssociationTarget(); // there should be exactly one
+                    coordinatesFilter = coordinatesFilterBuilder
+                            .and().item(ShadowType.F_KIND).eq(associationTargetDef.getKind())
+                            .and().item(ShadowType.F_INTENT).eq(associationTargetDef.getIntent())
+                            .buildFilter();
+                } else {
+                    // There are multiple intents here. Unfortunately, we cannot use them as filtering criteria, because of the
+                    // provisioning module limitations: only one kind/intent is allowed. So, we'll search for all the objects
+                    // of the given object class, as it was done before 4.6 (see commit 473467d303225b207a2f8da820ee08f7cc786791).
+                    // We'll filter out unwanted objects later in isAcceptable() method.
+                    coordinatesFilter = coordinatesFilterBuilder
+                            .and().item(ShadowType.F_OBJECT_CLASS).eq(associationDefinition.getObjectClassName())
+                            .buildFilter();
                 }
-                ResourceObjectTypeDefinition rAssocTargetDef = (ResourceObjectTypeDefinition) rAssocTargetDefTypedValue.getValue();
-                ObjectFilter coordinatesFilter = prismContext.queryFor(ShadowType.class)
-                        .item(ShadowType.F_RESOURCE_REF).ref(rAssocTargetDef.getResourceOid())
-                        .and().item(ShadowType.F_KIND).eq(rAssocTargetDef.getKind())
-                        .and().item(ShadowType.F_INTENT).eq(rAssocTargetDef.getIntent())
-                        .buildFilter();
                 query.setFilter(
                         prismContext.queryFactory()
                                 .createAnd(coordinatesFilter, query.getFilter()));
@@ -148,8 +159,18 @@ public class AssociationTargetSearchExpressionEvaluator
             }
 
             @Override
-            protected boolean isAcceptable(@NotNull PrismObject<ShadowType> object) {
-                return ShadowUtil.isNotDead(object.asObjectable());
+            protected boolean isAcceptable(@NotNull PrismObject<ShadowType> object, ExpressionEvaluationContext context)
+                    throws ExpressionEvaluationException {
+                if (ShadowUtil.isDead(object.asObjectable())) {
+                    return false;
+                }
+                var associationDefinition = getAssociationDefinition(context);
+                if (!associationDefinition.hasMultipleIntents()) {
+                    return true; // we searched for specific kind+intent (see above)
+                }
+                var shadow = object.asObjectable();
+                return shadow.getKind() == associationDefinition.getKind()
+                        && associationDefinition.getIntents().contains(shadow.getIntent());
             }
 
             /**
@@ -170,6 +191,16 @@ public class AssociationTargetSearchExpressionEvaluator
                         ShadowType.class);
             }
 
+            protected ObjectQuery createRawQuery(ExpressionEvaluationContext context)
+                    throws ConfigurationException, SchemaException, ExpressionEvaluationException {
+                SearchFilterType filterBean =
+                        MiscUtil.configNonNull(expressionEvaluatorBean.getFilter(), () -> "No filter in " + shortDebugDump());
+
+                var associationTargetDef = getAssociationDefinition(context);
+                var concreteShadowDef = associationTargetDef.getAssociationTarget().getPrismObjectDefinition();
+                var filter = prismContext.getQueryConverter().createObjectFilter(concreteShadowDef, filterBean);
+                return prismContext.queryFactory().createQuery(filter);
+            };
         };
     }
 

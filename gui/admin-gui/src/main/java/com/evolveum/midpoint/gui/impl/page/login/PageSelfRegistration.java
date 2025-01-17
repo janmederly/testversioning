@@ -9,9 +9,10 @@ package com.evolveum.midpoint.gui.impl.page.login;
 import com.evolveum.midpoint.authentication.api.config.MidpointAuthentication;
 import com.evolveum.midpoint.gui.api.component.password.PasswordPropertyPanel;
 
+import com.evolveum.midpoint.gui.impl.page.login.module.PageLogin;
+
 import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.feedback.ContainerFeedbackMessageFilter;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.panel.FeedbackPanel;
@@ -33,7 +34,6 @@ import com.evolveum.midpoint.schema.constants.SchemaConstants;
 import com.evolveum.midpoint.schema.result.OperationResult;
 import com.evolveum.midpoint.schema.result.OperationResultStatus;
 import com.evolveum.midpoint.task.api.Task;
-import com.evolveum.midpoint.util.Producer;
 import com.evolveum.midpoint.util.exception.*;
 import com.evolveum.midpoint.util.logging.LoggingUtils;
 import com.evolveum.midpoint.util.logging.Trace;
@@ -41,7 +41,6 @@ import com.evolveum.midpoint.util.logging.TraceManager;
 import com.evolveum.midpoint.web.component.input.TextPanel;
 import com.evolveum.midpoint.web.component.prism.DynamicFormPanel;
 import com.evolveum.midpoint.web.component.util.VisibleBehaviour;
-import com.evolveum.midpoint.web.component.util.VisibleEnableBehaviour;
 import com.evolveum.midpoint.web.page.admin.configuration.component.EmptyOnBlurAjaxFormUpdatingBehaviour;
 import com.evolveum.midpoint.web.security.util.SecurityUtils;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.*;
@@ -96,6 +95,12 @@ public class PageSelfRegistration extends PageAbstractFlow {
                 return instantiateUser();
             }
         };
+
+        if (!isSelfRegistrationAllowedFor(userModel.getObject())) {
+            // If provided user (new or invited) does not have correct required lifecycle state, redirect back to login.
+            LOGGER.error("Unauthorized access to registration form for user: {}", userModel.getObject());
+            throw new RestartResponseException(PageLogin.class);
+        }
     }
 
     protected UserType instantiateUser() {
@@ -113,6 +118,19 @@ public class PageSelfRegistration extends PageAbstractFlow {
 
     private PrismObjectDefinition<UserType> getUserDefinition() {
         return getPrismContext().getSchemaRegistry().findObjectDefinitionByCompileTimeClass(UserType.class);
+    }
+
+    protected String getRequiredLifecycle() {
+        return getSelfRegistrationConfiguration().getRequiredLifecycleState();
+    }
+
+    protected boolean isSelfRegistrationAllowedFor(UserType type) {
+        var requiredLifecycle =  getRequiredLifecycle();
+        if (requiredLifecycle == null) {
+            return true;
+        }
+        // Lifecycle state before modification must equal
+        return requiredLifecycle.equals(type.getLifecycleState());
     }
 
     @Override
@@ -221,16 +239,18 @@ public class PageSelfRegistration extends PageAbstractFlow {
         saveUser(result);
         result.computeStatus();
 
-        if (result.getStatus() == OperationResultStatus.SUCCESS) {
+        if (result.getStatus() == OperationResultStatus.SUCCESS || result.getStatus() == OperationResultStatus.HANDLED_ERROR) {
             getSession()
                     .success(createStringResource("PageSelfRegistration.registration.success").getString());
-
-            String sequenceIdentifier = getSelfRegistrationConfiguration().getAdditionalAuthentication();
-            if (SecurityUtils.sequenceExists(getSelfRegistrationConfiguration().getAuthenticationPolicy(), sequenceIdentifier)) {
-                target.add(PageSelfRegistration.this);
-            }
-            LOGGER.trace("Registration for user {} was successfull.", getUserModel().getObject());
-
+            afterUserRegistration(target);
+        } else if (result.getStatus() == OperationResultStatus.IN_PROGRESS) {
+            getSession()
+                    .info(createStringResource("PageSelfRegistration.registration.inprogress").getString());
+            afterUserRegistration(target);
+        } else if (result.getStatus() == OperationResultStatus.WARNING) {
+            getSession()
+                    .warn(createStringResource("PageSelfRegistration.registration.success").getString());
+            afterUserRegistration(target);
         } else {
             String message;
             if (result.getUserFriendlyMessage() != null) {
@@ -246,10 +266,18 @@ public class PageSelfRegistration extends PageAbstractFlow {
             target.add(getFeedbackPanel());
             LOGGER.error("Failed to register user {}. Reason {}", getUserModel().getObject(), result.getMessage());
             return;
-
         }
         target.add(getFeedbackPanel());
         target.add(PageSelfRegistration.this);
+    }
+
+    private void afterUserRegistration(AjaxRequestTarget target) {
+        String sequenceIdentifier = getSelfRegistrationConfiguration().getAdditionalAuthentication();
+        if (SecurityUtils.sequenceExists(getSelfRegistrationConfiguration().getAuthenticationPolicy(), sequenceIdentifier)) {
+            target.add(PageSelfRegistration.this);
+        }
+        LOGGER.trace("Registration for user {} was successfull.", getUserModel().getObject());
+        isSubmitted = true;
     }
 
     @Override
@@ -262,33 +290,38 @@ public class PageSelfRegistration extends PageAbstractFlow {
     }
 
     private void saveUser(OperationResult result) {
-        try {
-            PrismObject<UserType> administrator = getAdministratorPrivileged(result);
+        if (isSelfRegistrationAllowedFor(getUserModel().getObject())) {
+            try {
+                PrismObject<UserType> administrator = getAdministratorPrivileged(result);
 
-            runAsChecked(
-                    (lResult) -> {
-                        ObjectDelta<UserType> userDelta;
-                        Task task = createSimpleTask(OPERATION_SAVE_USER, null);
-                        task.setChannel(SchemaConstants.CHANNEL_SELF_REGISTRATION_URI);
-                        try {
-                            userDelta = prepareUserDelta(task, lResult);
-                            userDelta.setPrismContext(getPrismContext());
-                        } catch (SchemaException | ExpressionEvaluationException | ObjectNotFoundException | CommunicationException | ConfigurationException | SecurityViolationException e) {
-                            lResult.recordFatalError(getString("PageSelfRegistration.message.createDelta.fatalError", e.getMessage()), e);
+                runAsChecked(
+                        (lResult) -> {
+                            ObjectDelta<UserType> userDelta;
+                            Task task = createSimpleTask(OPERATION_SAVE_USER, null);
+                            task.setChannel(SchemaConstants.CHANNEL_SELF_REGISTRATION_URI);
+                            try {
+                                userDelta = prepareUserDelta(task, lResult);
+                                userDelta.setPrismContext(getPrismContext());
+                            } catch (SchemaException | ExpressionEvaluationException | ObjectNotFoundException |
+                                    CommunicationException | ConfigurationException | SecurityViolationException e) {
+                                lResult.recordFatalError(getString("PageSelfRegistration.message.createDelta.fatalError", e.getMessage()), e);
+                                return null;
+                            }
+                            WebModelServiceUtils.save(userDelta, executeOptions().overwrite(), lResult, task, PageSelfRegistration.this);
                             return null;
-                        }
-                        WebModelServiceUtils.save(userDelta, executeOptions().overwrite(), lResult, task, PageSelfRegistration.this);
-                        return null;
-                    },
-                    administrator, result);
-        } catch (CommonException | RuntimeException e) {
-            result.recordFatalError(getString("PageSelfRegistration.message.saveUser.fatalError"), e);
-        } finally {
-            result.computeStatusIfUnknown();
+                        },
+                        administrator, result);
+            } catch (CommonException | RuntimeException e) {
+                result.recordFatalError(getString("PageSelfRegistration.message.saveUser.fatalError"), e);
+            } finally {
+                result.computeStatusIfUnknown();
+            }
+        } else {
+            result.recordFatalError(getString("PageSelfRegistration.message.saveUser.fatalError"));
         }
     }
 
-    protected ObjectDelta<UserType> prepareUserDelta(Task task, OperationResult result) throws SchemaException, ExpressionEvaluationException, ObjectNotFoundException, CommunicationException, ConfigurationException, SecurityViolationException {
+    protected ObjectDelta<UserType> prepareUserDelta(Task task, OperationResult result) throws CommonException {
         LOGGER.trace("Preparing user ADD delta (new user registration)");
         UserType userType = prepareUserToSave(task, result);
         ObjectDelta<UserType> userDelta = DeltaFactory.Object.createAddDelta(userType.asPrismObject());
@@ -325,7 +358,7 @@ public class PageSelfRegistration extends PageAbstractFlow {
 
             try {
                 userToSave = getDynamicFormPanel().getObject().asObjectable().clone();
-            } catch (SchemaException e) {
+            } catch (CommonException e) {
                 LoggingUtils.logException(LOGGER, "Failed to construct delta " + e.getMessage(), e);
                 throw new RestartResponseException(this);
             }

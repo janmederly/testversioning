@@ -250,8 +250,7 @@
                 <xsd:annotation>
                     <xsd:documentation>
                         <p>
-                            Specifies scripting hook which can modify operation results or messages
-                            before they are shown in UI.
+                            Specifies configuration that can modify messages before they are shown in UI.
                         </p>
                     </xsd:documentation>
                     <xsd:appinfo>
@@ -3275,7 +3274,7 @@
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>
-            <xsd:element name="metricRef" type="tns:SimulationMetricReferenceType"/>
+            <xsd:element name="metricRef" type="tns:SimulationMetricReferenceType" minOccurs="0"/>
         </xsd:sequence>
         <xsd:attribute name="id" type="xsd:long"/>
     </xsd:complexType>
@@ -3568,8 +3567,55 @@
         <xsd:sequence>
             <xsd:element name="operationResultHook" type="tns:ExpressionType" minOccurs="0">
                 <xsd:annotation>
+                    <xsd:documentation>
+                        Specifies scripting hook which can modify operation results or messages
+                        before they are shown in UI.
+                    </xsd:documentation>
                     <xsd:appinfo>
                         <a:displayName>FeedbackMessagesHookType.operationResultHook</a:displayName>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element minOccurs="0" name="stackTraceVisibility" type="tns:UserInterfaceElementVisibilityType" default="visible">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        Visibility for stack trace in feedback messages of GUI.
+                        Relevant values are 'visible' and 'hidden'. Default value is 'visible'.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>FeedbackMessagesHookType.stackTraceVisibility</a:displayName>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element minOccurs="0" name="showOnlyUserFriendlyMessages" type="xsd:boolean">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        If set to true, only user-friendly messages will be shown in the GUI.
+                        This is useful for production systems to avoid showing internal error messages.
+                        If there's no user-friendly message, the default simple user-friendly message will be used.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>FeedbackMessagesHookType.showOnlyUserFriendlyMessages</a:displayName>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element minOccurs="0" name="disableOperationResultDownload" type="xsd:boolean">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        If set to true, the operation result download will be disabled.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>FeedbackMessagesHookType.disableOperationResultDownload</a:displayName>
+                    </xsd:appinfo>
+                </xsd:annotation>
+            </xsd:element>
+            <xsd:element minOccurs="0" name="displayOnlyTopLevelOperationResult" type="xsd:boolean">
+                <xsd:annotation>
+                    <xsd:documentation>
+                        If set to true, only top-level operation result will be displayed.
+                    </xsd:documentation>
+                    <xsd:appinfo>
+                        <a:displayName>FeedbackMessagesHookType.displayOnlyTopLevelOperationResult</a:displayName>
                     </xsd:appinfo>
                 </xsd:annotation>
             </xsd:element>

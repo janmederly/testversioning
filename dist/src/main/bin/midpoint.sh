@@ -315,7 +315,12 @@ while read line; do
   [ "${_key: -5}" = ".FILE" ] && _key="${_key::$((${#_key} - 5))}_FILE"
   ###
 
-  echo "Processing variable (MAP) ... ${_key} .:. ${_val}"
+  if [ "${_key: -7}" = "assword" ]
+  then
+    echo "Processing variable (MAP) ... ${_key} .:. *****" >&2
+  else
+    echo "Processing variable (MAP) ... ${_key} .:. ${_val}" >&2
+  fi
 
   if [ "${_key:0:1}" = "." ]; then
     JAVA_OPTS="${JAVA_OPTS:-} -D${_key:1}=\"${_val}\""
@@ -333,7 +338,12 @@ while read line; do
   [ "${_key: -5}" = ".FILE" ] && _key="${_key::$((${#_key} - 5))}_FILE"
   ###
 
-  echo "Processing variable (UNMAP) ... ${_key} .:. ${_val}"
+  if [ "${_key: -7}" = "assword" ]
+  then
+    echo "Processing variable (UNMAP) ... ${_key} .:. *****" >&2
+  else
+    echo "Processing variable (UNMAP) ... ${_key} .:. ${_val}" >&2
+  fi
 
   JAVA_OPTS="$(echo -n "${JAVA_OPTS:-}" | sed "s/ -D${_key}=\"[^\"]*\"//g;s/ -D${_key}=[^[:space:]]*//g")"
 done < <(env | grep "^${ENV_UNMAP_PREFIX}")
@@ -461,7 +471,7 @@ if [[ "$1" == "container" ]]; then
     eval "\"${_RUNJAVA}\"" \
       ${JAVA_OPTS} \
       -jar "\"${BASE_DIR}/lib/midpoint.jar\"" \
-      "$@" "&" 2>&1
+      \"\$@\" "&" 2>&1
   fi
 
   if [[ -n "${PID_FILE}" ]]; then
@@ -531,7 +541,7 @@ if [[ "$1" == "start" ]]; then
   eval "${_NOHUP}" "\"${_RUNJAVA}\"" \
     ${JAVA_OPTS} \
     -jar "\"${BASE_DIR}/lib/midpoint.jar\"" \
-    "$@" \
+    \"\$@\" \
     "&" >>"${BOOT_OUT}" 2>&1
 
   if [[ -n "${PID_FILE}" ]]; then

@@ -857,7 +857,8 @@ public interface MidpointFunctions {
      * @throws IllegalArgumentException
      *             wrong OID format
      */
-    OperationResult testResource(String resourceOid) throws ObjectNotFoundException, SchemaException, ConfigurationException;
+    OperationResult testResource(String resourceOid) throws ObjectNotFoundException, SchemaException, ConfigurationException,
+            SecurityViolationException, ExpressionEvaluationException, CommunicationException;
 
     List<String> toList(String... s);
 
@@ -1463,6 +1464,7 @@ public interface MidpointFunctions {
 
     RepositoryService getRepositoryService();
 
+    /** Creates an {@link OptimizingTriggerCreator} that is able to create triggers only if they are not already present. */
     @NotNull
     OptimizingTriggerCreator getOptimizingTriggerCreator(long fireAfter, long safetyMargin);
 
@@ -1573,4 +1575,7 @@ public interface MidpointFunctions {
      * (So, previously it existed and was effectively enabled.)
      */
     boolean isFocusDeactivated();
+
+    /** Does the current clockwork operation delete the focus? */
+    boolean isFocusDeleted();
 }

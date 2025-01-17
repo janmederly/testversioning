@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import javax.xml.namespace.QName;
 
+import com.evolveum.midpoint.gui.api.util.GuiDisplayTypeUtil;
+
 import org.apache.commons.lang3.StringUtils;
 
 import com.evolveum.midpoint.gui.api.page.PageBase;
@@ -24,14 +26,18 @@ import com.evolveum.midpoint.util.DisplayableValue;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.ObjectTypeSearchItemConfigurationType;
 import com.evolveum.midpoint.xml.ns._public.common.common_3.SearchBoxModeType;
 
+import org.apache.wicket.model.IModel;
+import org.apache.wicket.model.LoadableDetachableModel;
+import org.apache.wicket.model.Model;
+
 public class ObjectTypeSearchItemWrapper extends FilterableSearchItemWrapper<QName> {
 
     private boolean typeChanged;
     private boolean allowAllTypesSearch;
 
     private List<Class<?>> supportedTypeList = new ArrayList<>();
-    private String name;
-    private String help;
+    private IModel<String> name = Model.of();
+    private IModel<String> help = Model.of();
     private boolean visible = true;
 
     private QName defaultObjectType;
@@ -40,6 +46,8 @@ public class ObjectTypeSearchItemWrapper extends FilterableSearchItemWrapper<QNa
     public ObjectTypeSearchItemWrapper(ObjectTypeSearchItemConfigurationType config) {
         convertSupportedTypeList(config.getSupportedTypes());
         this.defaultObjectType = config.getDefaultValue();
+        name = resolveName(config);
+        help = resolveHelp(config);
     }
 
     public ObjectTypeSearchItemWrapper(List<Class<?>> supportedTypeList, QName defaultObjectType) {
@@ -92,20 +100,20 @@ public class ObjectTypeSearchItemWrapper extends FilterableSearchItemWrapper<QNa
     }
 
     @Override
-    public String getName() {
-        return StringUtils.isNotEmpty(name) ? name : PageBase.createStringResourceStatic("ContainerTypeSearchItem.name").getString();
+    public IModel<String> getName() {
+        return StringUtils.isNotEmpty(name.getObject()) ? name : PageBase.createStringResourceStatic("ContainerTypeSearchItem.name");
     }
 
-    public void setName(String name) {
+    public void setName(IModel<String> name) {
         this.name = name;
     }
 
     @Override
-    public String getHelp() {
-        return StringUtils.isNotEmpty(help) ? help : "";
+    public IModel<String> getHelp() {
+        return StringUtils.isNotEmpty(help.getObject()) ? help : Model.of("");
     }
 
-    public void setHelp(String help) {
+    public void setHelp(IModel<String> help) {
         this.help = help;
     }
 
@@ -115,8 +123,8 @@ public class ObjectTypeSearchItemWrapper extends FilterableSearchItemWrapper<QNa
     }
 
     @Override
-    public String getTitle() {
-        return ""; //todo
+    public IModel<String> getTitle() {
+        return Model.of(""); //todo
     }
 
     @Override
@@ -153,5 +161,29 @@ public class ObjectTypeSearchItemWrapper extends FilterableSearchItemWrapper<QNa
 
     public void setAllowAllTypesSearch(boolean allowAllTypesSearch) {
         this.allowAllTypesSearch = allowAllTypesSearch;
+    }
+
+    private IModel<String> resolveName(ObjectTypeSearchItemConfigurationType config) {
+        return new LoadableDetachableModel<>() {
+            @Override
+            protected String load() {
+                if (config == null || config.getDisplay() == null) {
+                    return null;
+                }
+                return GuiDisplayTypeUtil.getTranslatedLabel(config.getDisplay());
+            }
+        };
+    }
+
+    private IModel<String> resolveHelp(ObjectTypeSearchItemConfigurationType config) {
+        return new LoadableDetachableModel<>() {
+            @Override
+            protected String load() {
+                if (config == null || config.getDisplay() == null) {
+                    return null;
+                }
+                return GuiDisplayTypeUtil.getHelp(config.getDisplay());
+            }
+        };
     }
 }

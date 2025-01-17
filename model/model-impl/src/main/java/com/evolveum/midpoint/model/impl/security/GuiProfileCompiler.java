@@ -356,7 +356,7 @@ public class GuiProfileCompiler {
         }
 
         if (adminGuiConfiguration.getFeedbackMessagesHook() != null) {
-            composite.setFeedbackMessagesHook(adminGuiConfiguration.getFeedbackMessagesHook().clone());
+            mergeFeedbackMessagesHook(composite, adminGuiConfiguration.getFeedbackMessagesHook());
         }
 
         if (adminGuiConfiguration.getRoleManagement() != null &&
@@ -422,6 +422,28 @@ public class GuiProfileCompiler {
         if (adminGuiConfiguration.getSelfProfilePage() != null) {
             composite.setSelfProfilePage(adminGuiConfigurationMergeManager.mergeObjectDetailsPageConfiguration(
                     adminGuiConfiguration.getSelfProfilePage(), composite.getSelfProfilePage()));
+        }
+    }
+
+    private void mergeFeedbackMessagesHook(CompiledGuiProfile composite, FeedbackMessagesHookType feedbackMessagesHook) {
+        if (composite.getFeedbackMessagesHook() == null) {
+            composite.setFeedbackMessagesHook(feedbackMessagesHook.clone());
+            return;
+        }
+        if (feedbackMessagesHook.getOperationResultHook() != null) {
+            composite.getFeedbackMessagesHook().setOperationResultHook(feedbackMessagesHook.getOperationResultHook());
+        }
+        if (feedbackMessagesHook.getStackTraceVisibility() != null) {
+            composite.getFeedbackMessagesHook().setStackTraceVisibility(feedbackMessagesHook.getStackTraceVisibility());
+        }
+        if (feedbackMessagesHook.getDisableOperationResultDownload() != null) {
+            composite.getFeedbackMessagesHook().setDisableOperationResultDownload(feedbackMessagesHook.getDisableOperationResultDownload());
+        }
+        if (feedbackMessagesHook.getShowOnlyUserFriendlyMessages() != null) {
+            composite.getFeedbackMessagesHook().setShowOnlyUserFriendlyMessages(feedbackMessagesHook.getShowOnlyUserFriendlyMessages());
+        }
+        if (feedbackMessagesHook.isDisplayOnlyTopLevelOperationResult() != null) {
+            composite.getFeedbackMessagesHook().setDisplayOnlyTopLevelOperationResult(feedbackMessagesHook.isDisplayOnlyTopLevelOperationResult());
         }
     }
 
@@ -503,6 +525,10 @@ public class GuiProfileCompiler {
         AccessRequestType ar = composite.getAccessRequest();
         if (accessRequest.getTargetSelection() != null) {
             ar.setTargetSelection(accessRequest.getTargetSelection().clone());
+        }
+
+        if (accessRequest.getRelationSelection() != null) {
+            ar.setRelationSelection(accessRequest.getRelationSelection().clone());
         }
 
         if (accessRequest.getRoleCatalog() != null) {
@@ -638,7 +664,7 @@ public class GuiProfileCompiler {
     }
 
     private void joinResourceDetails(GuiObjectDetailsSetType objectDetailsSet, GuiResourceDetailsPageType newObjectDetails, Optional<GuiResourceDetailsPageType> detailForAllResources, OperationResult result) {
-        objectDetailsSet.getResourceDetailsPage().removeIf(currentDetails -> isTheSameConnectorType(currentDetails, newObjectDetails, result));
+        objectDetailsSet.getResourceDetailsPage().removeIf(currentDetails -> isTheSameConnector(currentDetails, newObjectDetails, result));
         if (!detailForAllResources.isEmpty() && newObjectDetails.getConnectorRef() != null) {
             GuiResourceDetailsPageType merged = adminGuiConfigurationMergeManager.mergeObjectDetailsPageConfiguration(
                     detailForAllResources.get(),
@@ -683,17 +709,17 @@ public class GuiProfileCompiler {
         return oldCoords.equals(newCoords);
     }
 
-    private boolean isTheSameConnectorType(GuiResourceDetailsPageType oldConf, GuiResourceDetailsPageType newConf, OperationResult result) {
+    private boolean isTheSameConnector(GuiResourceDetailsPageType oldConf, GuiResourceDetailsPageType newConf, OperationResult result) {
         if (oldConf.getConnectorRef() == null || newConf.getConnectorRef() == null) {
             LOGGER.trace("Cannot join resource details configuration as defined in {} and {}. No connector defined", oldConf, newConf);
             return false;
         }
-        String oldConnectorRef = resolveReferenceIfNeeded(oldConf.getConnectorRef(), result);
-        String newConnctorRef = resolveReferenceIfNeeded(newConf.getConnectorRef(), result);
-        if (oldConnectorRef == null || newConnctorRef == null) {
+        String oldConnectorOid = resolveReferenceIfNeeded(oldConf.getConnectorRef(), result);
+        String newConnectorOid = resolveReferenceIfNeeded(newConf.getConnectorRef(), result);
+        if (oldConnectorOid == null || newConnectorOid == null) {
             return false;
         }
-        return oldConnectorRef.equals(newConnctorRef);
+        return oldConnectorOid.equals(newConnectorOid);
     }
 
     private String resolveReferenceIfNeeded(ObjectReferenceType reference, OperationResult result) {
