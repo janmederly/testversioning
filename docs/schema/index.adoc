@@ -10,7 +10,7 @@
 :page-upkeep-status: green
 :page-liquid:
 
-Following pages describe concepts related to schema, data model, object structure, types and archetypes.
+Following pages describe concepts related to schema, data model, object structure, types and archetypes. test
 
 ++++
 {% children %}
