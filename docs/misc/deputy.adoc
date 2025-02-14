@@ -127,7 +127,7 @@ However, using just these authorizations by themselves would not be entirely pra
 This is given by the fact that it is usually the delegator that is initiating the delegation.
 This means that the delegator needs to add assignment to a different user (the deputy).
 And this is not easy to do with current authorizations.
-Therefore special `delegate` authorization was introduced. test
+Therefore special `delegate` authorization was introduced.
 It can be used like this:
 
 [source,xml]
