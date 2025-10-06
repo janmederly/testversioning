@@ -10,7 +10,7 @@
 :page-upkeep-status: green
 
 MidPoint has a sophisticated web-based user interface that can be used for xref:/midpoint/reference/admin-gui/self-service/[self service], identity administration and midPoint configuration.
-This is one unified user interface by purpose. TEST5
+This is one unified user interface by purpose. TEST6
 It is not artificially divided into end-user and administration part because of delegated administration possibility.
 Some users may have administrative authorizations over a portion of a system and they can do both self-service and administration tasks from the same user interface.
 Despite that the midPoint user interface is a single application it is visually divided into two parts:
