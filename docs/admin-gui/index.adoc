@@ -26,3 +26,12 @@ Following pages describe MidPoint web-based administration user interface, its u
 ++++
 
 include::../_reference-disclaimer.adoc[]
+
+
+TEST
+schama and javadoc examples:
+
+docref:/javadoc/com/evolveum/midpoint/model/api/expr/MidpointFunctions.html#getArchetype(O)[optional link text]
+
+docref:/schemadoc/http---midpoint-evolveum-com-xml-ns-public-common-common-3/index.html[optional link text 2 schema]
+
